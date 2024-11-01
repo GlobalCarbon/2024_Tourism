@@ -1,0 +1,1622 @@
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 
+%% This code plots multiple graphs for 
+%% the Global Tourism Carbon Footprint paper
+%%
+%% 1 November 2024
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% 1 Initialisation
+select = 1:20; szs = size(select,2);
+select10 = 1:10; szs10 = size(select10,2); 
+
+ii = [1 3 4]; % 2009, 2019, 2020
+items = [9 1:3 7 4 8 16 5 11:15 10]; items1 = [9 3 7 4 8 16 11:15];
+items16 = 1:16;
+
+exclus = [countryAcros(nodata);'XAM';'XEU';'XAF';'XAS']; cFilter = ~ismember(countryAcros,exclus);
+exclus2 = [exclus;'HKG';'PAK';'OMN']; cFilter2 = ~ismember(countryAcros,exclus2); 
+
+for k=1:NYear
+    FPdom(:,k) = sum((squeeze(FP1(:,:,k)) .* concDom1),2) ./ 1e3;
+    FPout(:,k) = sum((squeeze(FP1(:,:,k)) .* (1-concDom1)),1)' ./ 1e3;
+    FPinb(:,k) = sum((squeeze(FP1(:,:,k)) .* (1-concDom1)),2) ./ 1e3;
+end
+
+yt16Yr = squeeze(sum(sum(reshape(yt16,[16,NCOUN,NCOUN,5]),3),2)); 
+FP16Yr = squeeze(sum(sum(reshape(FP16,[16,NCOUN,NCOUN,5]),3),2));
+FP16Yrdirect = squeeze(sum(sum(reshape(FP16direct,[16,NCOUN,NCOUN,5]),3),2));
+FP16Yrindirect = squeeze(sum(sum(reshape(FP16indirect,[16,NCOUN,NCOUN,5]),3),2));
+
+faceRBA = [[0.0    0.4470 0.7410];...
+           [0.8500 0.8500 0.8500]]; 
+
+faceDBA = [[0.0    0.50   0.0   ];...
+           [0.8500 0.8500 0.8500]];
+
+disp(['Plotting results for Main Article.']);
+%% 10. Summary table
+tmp = [checkytourNoCPI(1:4,:)'./1e12;...
+       checkytour(1:4,:)'./1e12;...
+       checkFPfull(1:4,:)'./1e12;...
+       [50.91 55.52 59.09 54.5];...
+       [45.0 49.9 52.4 50.8]];
+tmp = [tmp; tmp(3,:)./tmp(4,:)*100;...
+       tmp(3,:)./tmp(5,:)*100;...
+       tmp(3,:)./tmp(2,:);...
+       tmp(3,:)./[6.89 7.23 7.74 7.82].*1e3;...
+       [60.72 77.75 87.95 85.58]];
+tmp = [tmp; tmp(10,:) ./ (sum(xout(:,1:4),1) ./ sum(xoutCons(:,1:4),1))];
+tmp = [tmp; tmp(4,:)./tmp(11,:)];
+tmp = [tmp; [64.2 62.3 64.6 65] .* tmp(11,:) / 100]; 
+Agg = zeros(120,1); Agg(100:end) = 1; AggSv = repmat(Agg,[NCOUN 1]); CO2sv = AggSv' * QCO2e; % Service sector
+tmp = [tmp; CO2sv(1:4) ./ 1e6];
+tmp = [tmp; tmp(14,:)./tmp(13,:)];
+
+tmpGrowth = ((tmp(:,3)./tmp(:,1)).^(1/10)-1)*100; % annual growth
+
+tmpX = cellfun(@(x) sprintf('%0.2f', x), num2cell([tmp,tmpGrowth]), 'UniformOutput',0); 
+uu = {'Tourism expenditure (US$ trillion)';...
+      'Tourism expenditure (US$ trillion), constant price 2009';...
+      'Tourism carbon footprint (Gt CO2-e)';...
+      'Total Global GHG (Gt CO2-e)';...
+      'Total Global GHG without LULUC (Gt CO2-e)';...
+      'Tourism share in global GHG (%)';...
+      'Tourism share in global GHG without LULUC (%)';...
+      'Tourism emissions per dollar spending (kg/US$), constant price 2009';...
+      'Per capita tourism expenditure (US$), constant price 2009';...
+      'Global GDP (US$ trillion)';...
+      'Global GDP (US$ trillion), constant price 2009';...
+      'Global emissions per dollar final demand (kg/US$), constant price 2009';
+      'Service GDP (US$ trillion), constant price 2009';...
+      'Service emissions (Gt CO2-e)';...
+      'Service emissions per dollar final demand (kg/US$), constant price 2009'};
+
+dFprofile = [{''},num2cell(GLyears(1:4)),'Annual % change (2009-2019)'; uu,tmpX];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_Tab1' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false); 
+
+% Direct and indirect emissions
+flowControl = []; flowLabel = {};
+
+k=3; yy = GLyears(k);
+tt = sum(concSec' * (squeeze(FP16direct(:,:,k))),2) ./ 1e9; uu = ['Direct ' num2str(yy)];
+flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+tt = sum(concSec' * (squeeze(FP16indirect(:,:,k))),2) ./ 1e9; uu = ['Indirect ' num2str(yy)];
+flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu); 
+
+tt = sum(concSec' * (squeeze(FP16(:,:,k))),2) ./ 1e9; uu = ['Total ' num2str(yy)];
+flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);
+
+flowControl = [flowControl; sum(flowControl,1)];
+
+dFprofile = ['Sector' 'Acronym' flowLabel; [FPsecLabels; 'Total'], [FPsecAbbrev; 'Tot'], num2cell(flowControl)];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Tab1');            
+
+%% 11. Top 20 ranking RBA and DBA CF
+f = figure('Name','Top 20 ranking RBA and DBA 2019','Position',[1 1 scrsz(3)/1.8 scrsz(4)/2]);
+% RBA
+k=3; yy = GLyears(k);
+cfMRIO = FPdom + FPout; cfTSA = FPdom + FPinb;
+
+internationalYout = FPout(:,k)./1e6; domesticYout = FPdom(:,k)./1e6; totalYout = internationalYout + domesticYout; sumFP = totalYout;
+internationalYout(cFilter2==0,:) = 0; domesticYout(cFilter2==0,:) = 0; totalYout(cFilter2==0,:) = 0;
+[totalYout,ind] = sort(totalYout,'descend'); internationalYout = internationalYout(ind,1); domesticYout = domesticYout(ind,1);
+tmpCountryYout = countryNames(ind,1); clear ind; top20countryRBA = cellstr(tmpCountryYout);
+tmpOut = [ num2cell(domesticYout) , num2cell(internationalYout) , num2cell(totalYout) , num2cell(totalYout / sum(sumFP) * 100)];   
+tmpOutX = cellfun(@(x) sprintf('%0.1f', x), tmpOut, 'UniformOutput',0);
+
+subplot(1,2,1); 
+bx = barh(cell2mat(flipud([tmpOut(select,2),tmpOut(select,1)])),'stacked','FaceColor','flat'); ylim([0,szs+1]); yticks([1:szs]); 
+yticklabels(flipud([top20countryRBA(select,:)])); %xtickangle(85); 
+for n=1:2; bx(n).CData = flipud(faceRBA(n,:)); end
+ax = gca; ax.FontSize = 11; title(['RBA carbon footprint ' num2str(yy)],'FontSize',14); 
+nm = 1400; xlim([0,nm]); text(nm-100,-0.85,'Mt CO_2-e'); %xlabel('Mt CO_2-e');
+%legend({'Out','Dom'},'location','southeast','FontSize',10);
+
+y1 = flipud(tmpOutX(select,4)); x1 = cell2mat(tmpOut(select,3)); 
+for n=1:20
+    text(x1(21-n)+20,n,[y1{n} '%'],'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+end
+totx = sum(x1)/1e3; tot20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(totx), 'UniformOutput',0);
+pctx = sum(x1)/sum(sumFP)*100; pct20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(pctx), 'UniformOutput',0);    
+text(nm/2,-2,['Total top 20: ' char(tot20) 'Gt (' char(pct20) '%)'],'HorizontalAlignment','center','FontSize',14);
+
+% DBA   
+internationalYin = FPinb(:,k)./1e6; domesticYin = FPdom(:,k)./1e6; totalYin = internationalYin + domesticYin; sumFP = totalYin;
+internationalYin(cFilter2==0,:) = 0; domesticYin(cFilter2==0,:) = 0; totalYin(cFilter2==0,:) = 0;
+[totalYin,ind] = sort(totalYin,'descend'); internationalYin = internationalYin(ind,1); domesticYin = domesticYin(ind,1);
+tmpCountryYin = countryNames(ind,1); indIn = ind; clear ind; top20countryDBA = tmpCountryYin;
+tmpIn = [ num2cell(domesticYin) , num2cell(internationalYin) , num2cell(totalYin) , num2cell(totalYin / sum(sumFP) * 100) ];
+tmpInX = cellfun(@(x) sprintf('%0.1f', x), tmpIn, 'UniformOutput',0);
+
+subplot(1,2,2);
+bx = barh(cell2mat(flipud([tmpIn(select,2),tmpIn(select,1)])),'stacked','FaceColor','flat'); ylim([0,szs+1]); yticks([1:szs]); 
+yticklabels(flipud([top20countryDBA(select,:)])); %xtickangle(85); 
+for n=1:2; bx(n).CData = flipud(faceDBA(n,:)); end
+ax = gca; ax.FontSize = 11; title(['DBA carbon footprint ' num2str(yy)],'FontSize',14); 
+nm = 1400; xlim([0,nm]); text(nm-100,-0.85,'Mt CO_2-e'); %xlabel('Mt CO_2-e');
+%legend({'Inb','Dom'},'location','southeast','FontSize',10);
+
+y1 = flipud(tmpInX(select,4)); x1 = cell2mat(tmpIn(select,3));
+for n=1:20
+    text(x1(21-n)+20,n,[y1{n} '%'],'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+end
+totx = sum(x1)/1e3; tot20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(totx), 'UniformOutput',0);
+pctx = sum(x1)/sum(sumFP)*100; pct20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(pctx), 'UniformOutput',0);    
+text(nm/2,-2,['Total top 20: ' char(tot20) 'Gt (' char(pct20) '%)'],'HorizontalAlignment','center','FontSize',14);
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Main-Top20RBA_DBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Main-Top20RBA_DBA'],'png');
+
+% Save in excel file
+dFprofile = [{'RBA','Domestic (Mt)','Outbound (Mt)','Total (Mt)','Share to Global (%)'}; top20countryRBA(select,:),tmpOutX(select,:); cell(1,5);...
+             {'DBA','Domestic (Mt)','Inbound (Mt)' ,'Total (Mt)','Share to Global (%)'}; top20countryDBA(select,:),tmpInX(select,:)];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_Fig1' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false);   
+%}
+%% 12. Propensity to travel
+Tdat = []; 
+Tdat(:,1) = FPout(:,3) ./ pop(:,3); % per capita RBA
+load([processeddatadir 'WBout.mat']); 
+Tdat(:,2) = concGLORIA2TSAreg * WBout(1:size(UNAcr,1),3);
+Tdat(:,3) = log10(pcGDP(:,3)); % per capita GDP
+Tdat(:,4) = Tdat(:,2) ./ pop(:,3); % ratio of tourist to population
+cup = Tdat(:,4)>1; Tdat(cup,4) = 1;
+Tdat(:,5) = Tdat(:,1) ./ Tdat(:,4); Tdat(isnan(Tdat)) = 0; % per capita RBA, adjusted by propensity to travel
+Tdat(nodata,:) = 0;
+TdatX = cellfun(@(x) sprintf('%0.2f', x), num2cell(Tdat), 'UniformOutput',0);
+
+% Average by income group
+concIncGL3 = concIncGL * [1 0 0 0; 0 1 1 0; 0 0 0 1]';
+tt = [max(sum(squeeze(GLflow(3,:,:)),1)', Tdat(:,2))]; % tt = Tdat(:,2); % 
+tt(cup,:) = pop(cup,3);
+Tavg(:,1) = (concIncGL3(cFilter,:)' * FPout(cFilter,3)) ./ (concIncGL3(cFilter,:)' * pop(cFilter,3)); % per capita RBA
+Tavg(:,2) = concIncGL3(cFilter,:)' * tt(cFilter,:);
+Tavg(:,3) = log10((concIncGL3(cFilter,:)' * GDP(cFilter,3)) ./ (concIncGL3(cFilter,:)' * pop(cFilter,3))); % per capita GDP
+Tavg(:,4) = Tavg(:,2) ./ (concIncGL3(cFilter,:)' * pop(cFilter,3)); % ratio of tourist to population
+Tavg(:,5) = Tavg(:,1) ./ Tavg(:,4); Tavg(isnan(Tavg)) = 0; % per capita RBA, adjusted by propensity to travel
+TavgX = cellfun(@(x) sprintf('%0.2f', x), num2cell(Tavg), 'UniformOutput',0);
+
+tmp = Tdat(:,5) .* concIncGL(:,[1]); Tlow = mean(tmp(tmp>0&tmp<3));
+tmp = Tdat(:,5) .* concIncGL(:,[4]); Thigh = mean(tmp(tmp>0));
+concIncGL3 = concIncGL * [1 0 0 0; 0 1 1 0; 0 0 0 1]';
+Ap = Tdat(:,5) .* concIncGL3; Ap(Ap==0) = NaN; Bp = mean(Ap,1,'omitnan');
+
+% Plot
+f=figure('Name','Propensity to travel','Position',[1 1 scrsz(3)/1.4 scrsz(4)/1.8]);
+
+subplot(1,2,1);
+vv = Tdat(cFilter,1); xx = Tdat(cFilter,3); sz = GDP(cFilter,3) ./ 1e9;
+bubblechart(xx,vv,sz,'MarkerFaceAlpha',0.20); hold on
+[p,s] = fit(xx, vv, 'poly4','Normalize','on','Robust','on'); plot(p); legend("off"); hold off
+ylim([0 4]); set(gca,'YTick',[0:1:10]); box on; xlim([2.5 5.5]);  
+xlabel('log_1_0 GDP/cap'); ylabel('Carbon footprint (t CO_2-e/cap)'); 
+ax = gca; ax.FontSize = 12; title({['Per capita outbound travel emissions 2019'];' '},'FontSize',14);
+['adj. R^2 = ' num2str(s.rsquare)]
+
+uu = top20countryRBA([1:4 6 7 9 10]);
+for pp = 1:size(uu,1)
+    [~,cc] = ismember(uu(pp),countryNames);
+    text(Tdat(cc,3),Tdat(cc,1),countryAcros{cc},'HorizontalAlignment','center'); %'Color',[0.1 1 0.1];   
+end; hold all;
+
+subplot(1,2,2);
+vv = Tdat(cFilter,5);
+bubblechart(xx,vv,sz,'MarkerFaceAlpha',0.20); hold on
+ylim([0 4]); set(gca,'YTick',[0:1:10]); box on; xlim([2.5 5.5]); 
+xlabel('log_1_0 GDP/cap'); ylabel('Carbon footprint (t CO_2-e/cap)'); 
+ax = gca; ax.FontSize = 12; title({['Per capita outbound travel emissions 2019'];'- adjusted by travel propensity'},'FontSize',14);
+aa = vv<4; [p,s] = polyfit(xx(aa),vv(aa),1); yfit = polyval(p,xx); plot(xx,yfit);
+SStot = sum((vv(aa)-mean(vv(aa))).^2); SSres = sum((vv(aa)-yfit(aa)).^2); 
+rsq_adj = 1 - SSres/SStot * (length(vv(aa))-1)/(length(vv(aa))-length(p));
+['adj. R^2 = ' num2str(rsq_adj)]
+
+for pp = 1:size(uu,1)
+    [~,cc] = ismember(uu(pp),countryNames);
+    text(Tdat(cc,3),Tdat(cc,5),countryAcros{cc},'HorizontalAlignment','center'); %'Color',[0.1 1 0.1];   
+end; hold all;
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Main-Propensity.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Main-Propensity'],'png');
+
+% Save in excel file
+dFprofile = [{'Country','log10 GDP/cap','Carbon footprint (t/cap)','Carbon footprint (t/cap) - adjusted by travel propensity'}; countryNames,TdatX(:,[3 1 5])];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_Fig4' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false);  
+
+disp(['Plotting results for Supplementary Information.']);
+%% 31. Expenditure and CF breakdown
+yt16YrPerc = yt16Yr * diag(1./sum(yt16Yr,1)) * 100; 
+FP16YrPerc = FP16Yr * diag(1./sum(FP16Yr,1)) * 100; 
+
+tmpyt16 = cellfun(@(x) sprintf('%0.1f', x), num2cell(yt16YrPerc), 'UniformOutput',0);
+tmpFP16 = cellfun(@(x) sprintf('%0.1f', x), num2cell(FP16YrPerc), 'UniformOutput',0);
+valyt16 = cellfun(@(x) sprintf('%0.2f', x), num2cell(yt16Yr ./ 1e12), 'UniformOutput',0);
+valFP16 = cellfun(@(x) sprintf('%0.2f', x), num2cell(FP16Yr ./ 1e12), 'UniformOutput',0);
+
+f = figure('Name','Expenditure ($tn) and carbon footprint (Gt) breakdown combined','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.5]);
+tx1 = repmat({''},[length(items1) 1]); tx = repmat({''},[length(items) 1]);
+for k=1:length(ii)
+    yy=GLyears(ii(k)); kk=ii(k);
+    subplot(2,3,k);
+    H = pie(flipud(yt16YrPerc(items1,kk))); colormap(flipud(cmp(items1,:))); freezeColors; hold on  
+    ax = H(strcmpi(get(H,'Type'),'text')); P = cell2mat(get(ax,'Position'));
+    set(ax,{'Position'},num2cell(P*0.6,2)); text(P(:,1),P(:,2),tx1);
+    set(H(2:2:end),'FontSize',11);
+    
+    combinedtxt = strcat(FPsecAbbrev,':',{' '},valyt16(:,kk)); 
+    h = pie(flipud(yt16YrPerc(items1,kk)),flipud(combinedtxt(items1))); colormap(flipud(cmp(items1,:))); freezeColors; hold off
+    set(h(2:2:end),'FontSize',11);
+    title({['Expenditure ' num2str(yy) ' ($tn)'];''},'FontSize',16,'FontWeight','Normal');
+
+    subplot(2,3,k+3);
+    H = pie(flipud(FP16YrPerc(items,kk))); colormap(flipud(cmp(items,:))); hold on  
+    ax = H(strcmpi(get(H,'Type'),'text')); P = cell2mat(get(ax,'Position'));
+    set(ax,{'Position'},num2cell(P*0.6,2)); text(P(:,1),P(:,2),tx);
+    set(H(2:2:end),'FontSize',11);
+    
+    combinedtxt = strcat(FPsecAbbrev,':',{' '},valFP16(:,kk));
+    h = pie(flipud(FP16YrPerc(items,kk)),flipud(combinedtxt(items))); colormap(flipud(cmp(items,:))); hold off
+    set(h(2:2:end),'FontSize',11);
+    title({['Carbon footprint ' num2str(yy) ' (Gt)'];''},'FontSize',16,'FontWeight','Normal');
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'SI-SectoralBreakdownCombined.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'SI-SectoralBreakdownCombined'],'png');
+
+% Save in excel file
+tt = [num2cell(GLyears(ii)); valyt16(:,ii); cell(1,3); num2cell(GLyears(ii)); tmpyt16(:,ii); cell(1,3); ...
+      num2cell(GLyears(ii)); valFP16(:,ii); cell(1,3); num2cell(GLyears(ii)); tmpFP16(:,ii)];
+uu = ['Tourism expenditure ($tn)'; FPsecLabels; {''}; 'Share expenditure (%)'; FPsecLabels; {''};...
+      'Carbon footprint (Gt)'; FPsecLabels; {''}; 'Share carbon footprint (%)'; FPsecLabels];
+
+dFprofile = [uu,tt];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Fig1');        
+
+%% 32. CF intensity
+CarbInt = FP16Yr./yt16Yr; CarbInt(isnan(CarbInt)) = 1e-10;
+CarbIntPetrol = FP16Yr(10,:) ./ yt16Yr(11,:);
+tmpval = [CarbInt(items1,ii); CarbIntPetrol(:,ii)]; tmplabel = [FPsecAbbrev(items1); FPsecAbbrev(10)];
+CI1 = zeros((size(tmpval,1)*(size(tmpval,2)+1))-1,1); CI2 = CI1; CI3 = CI1;
+for n=1:length(tmpval)
+    CI1((4*n)-3,:) = tmpval(n,1);
+    CI2((4*n)-2,:) = tmpval(n,2);
+    CI3((4*n)-1,:) = tmpval(n,3);
+end
+CI = CI1 + CI2 + CI3; aa = find(CI~=0);
+tmpCI = cellfun(@(x) sprintf('%0.2f', x), num2cell(CI), 'UniformOutput',0);
+
+f=figure('Name','Carbon intensity','Position',[1 1 scrsz(3)/1.2 scrsz(4)/2]);
+bar(CI1,'yellow'); hold on; bar(CI2,'green'); hold on; bar(CI3,'blue'); hold off
+xticklabels(tmplabel); xticks([2:4:4*length(tmplabel)]); ax = gca; ax.FontSize = 14; set(gca,'YTickLabel',[]);
+ylim([0 3.3]); ylabel('Carbon intensity (kg CO_2-e/$)');
+legend({'2009','2019','2020'},'location','northwest','FontSize',12);
+
+for n=1:length(aa)
+    text(aa(n),CI(aa(n))+(0.02*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'SI-CarbonIntensity.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'SI-CarbonIntensity'],'png');
+
+% Save in excel file
+tt = cellfun(@(x) sprintf('%0.2f', x), num2cell(tmpval), 'UniformOutput',0);
+
+dFprofile = ['Carbon intensity (kg/$)' num2cell(GLyears(ii)); [FPsecLabels(items1); FPsecLabels(10)], tt];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Fig2');
+
+%% 33. Top 20 ranking RBA CF
+flowControl = [];
+f = figure('Name','Top 20 ranking RBA (Mt CO_2-e)','Position',[1 1 scrsz(3)/1.2 scrsz(4)/2]);
+for k=1:3
+    yy=GLyears(ii(k));
+
+    internationalYout = FPout(:,ii(k))./1e6; domesticYout = FPdom(:,ii(k))./1e6; totalYout = internationalYout + domesticYout; sumFP = totalYout;
+    internationalYout(cFilter2==0,:) = 0; domesticYout(cFilter2==0,:) = 0; totalYout(cFilter2==0,:) = 0;
+    [totalYout,ind] = sort(totalYout,'descend'); internationalYout = internationalYout(ind,1); domesticYout = domesticYout(ind,1);
+    tmpCountryYout = countryNames(ind,1); clear ind;
+    tmpOut = [ num2cell(domesticYout) , num2cell(internationalYout) , num2cell(totalYout) , num2cell(totalYout / sum(sumFP) * 100) ];       
+    tmpOutX = cellfun(@(x) sprintf('%0.1f', x), tmpOut, 'UniformOutput',0);
+
+    % Draw bar graphs
+    subplot(1,3,k); 
+    bx = barh(cell2mat(flipud([tmpOut(select,2),tmpOut(select,1)])),'stacked','FaceColor','flat'); ylim([0,szs+1]); yticks([1:szs]); 
+    yticklabels(flipud([tmpCountryYout(select,:)])); %xtickangle(85); 
+    for n=1:2; bx(n).CData = flipud(faceRBA(n,:)); end
+    ax = gca; ax.FontSize = 11; title(['RBA cabon footprint ' num2str(yy)],'FontSize',14); 
+    nm = 1400; xlim([0,nm]); text(nm-100,-0.7,'Mt CO_2-e'); %xlabel('Mt CO_2-e');
+    legend({'Out','Dom'},'location','southeast','FontSize',10);
+
+    y1 = flipud(tmpOutX(select,4)); x1 = cell2mat(tmpOut(select,3)); 
+    for n=1:20
+        text(x1(21-n)+20,n,[y1{n} '%'],'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    end
+    totx = sum(x1)/1e3; tot20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(totx), 'UniformOutput',0);
+    pctx = sum(x1)/(sum(sumFP))*100; pct20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(pctx), 'UniformOutput',0);    
+    text(nm/2,-2,['Total top 20: ' char(tot20) 'Gt (' char(pct20) '%)'],'HorizontalAlignment','center','FontSize',14);
+
+    tt = [num2cell(yy),{'Domestic (Mt)','Outbound (Mt)','Total (Mt)','Share to Global (%)'}; tmpCountryYout(select,:),tmpOutX(select,:); cell(1,5)];
+    flowControl = cat(1,flowControl,tt); 
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'SI-Top20RBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'SI-Top20RBA'],'png');
+
+% Save in excel file
+dFprofile = flowControl;
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Fig3');  
+
+%% 34. Top 20 ranking DBA CF
+flowControl = [];
+f = figure('Name','Top 20 ranking DBA (Mt CO_2-e)','Position',[1 1 scrsz(3)/1.2 scrsz(4)/2]); 
+for k=1:3
+    yy=GLyears(ii(k));
+    
+    internationalYin = FPinb(:,ii(k))./1e6; domesticYin = FPdom(:,ii(k))./1e6; totalYin = internationalYin + domesticYin; sumFP = totalYin;
+    internationalYin(cFilter2==0,:) = 0; domesticYin(cFilter2==0,:) = 0; totalYin(cFilter2==0,:) = 0;
+    [totalYin,ind] = sort(totalYin,'descend'); internationalYin = internationalYin(ind,1); domesticYin = domesticYin(ind,1);
+    tmpCountryYin = countryNames(ind,1); indIn = ind; clear ind;
+    tmpIn = [ num2cell(domesticYin) , num2cell(internationalYin) , num2cell(totalYin) , num2cell(totalYin / sum(sumFP) * 100) ];
+    tmpInX = cellfun(@(x) sprintf('%0.1f', x), tmpIn, 'UniformOutput',0);
+
+    % Draw bar graphs
+    subplot(1,3,k);
+    bx = barh(cell2mat(flipud([tmpIn(select,2),tmpIn(select,1)])),'stacked','FaceColor','flat'); ylim([0,szs+1]); yticks([1:szs]); 
+    yticklabels(flipud([tmpCountryYin(select,:)])); %xtickangle(85); 
+    for n=1:2; bx(n).CData = flipud(faceDBA(n,:)); end
+    ax = gca; ax.FontSize = 11; title(['DBA cabon footprint ' num2str(yy)],'FontSize',14); 
+    nm = 1400; xlim([0,nm]); text(nm-100,-0.7,'Mt CO_2-e'); %xlabel('Mt CO_2-e');
+    legend({'Inb','Dom'},'location','southeast','FontSize',10);
+
+    y1 = flipud(tmpInX(select,4)); x1 = cell2mat(tmpIn(select,3));
+    for n=1:20
+        text(x1(21-n)+20,n,[y1{n} '%'],'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    end
+    totx = sum(x1)/1e3; tot20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(totx), 'UniformOutput',0);
+    pctx = sum(x1)/(sum(sumFP))*100; pct20 = cellfun(@(x) sprintf('%0.1f', x), num2cell(pctx), 'UniformOutput',0);    
+    text(nm/2,-2,['Total top 20: ' char(tot20) 'Gt (' char(pct20) '%)'],'HorizontalAlignment','center','FontSize',14);
+
+    tt = [num2cell(yy),{'Domestic (Mt)','Inbound (Mt)','Total (Mt)','Share to Global (%)'}; tmpCountryYin(select,:),tmpInX(select,:); cell(1,5)];
+    flowControl = cat(1,flowControl,tt);     
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'SI-Top20DBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'SI-Top20DBA'],'png');
+
+% Save in excel file
+dFprofile = flowControl;
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Fig4'); 
+
+%% 35. Top 20 ranking per capita CF net balance
+k=3; yy = GLyears(k);
+% Per-capita RBA
+internationalYout = FPout(:,k); domesticYout = FPdom(:,k); totalYout = internationalYout + domesticYout; sumFP = totalYout;
+internationalYout(cFilter2==0,:) = 0; domesticYout(cFilter2==0,:) = 0; totalYout(cFilter2==0,:) = 0;
+internationalYout = internationalYout ./ (pop(:,k) + 1e-10); domesticYout = domesticYout ./ (pop(:,k) + 1e-10); totalYout = totalYout ./ (pop(:,k) + 1e-10);
+[totalYout,ind] = sort(totalYout,'descend'); internationalYout = internationalYout(ind,1); domesticYout = domesticYout(ind,1);
+tmpCountryYout = countryNames(ind,1); clear ind;
+tmpOut = [ num2cell(domesticYout) , num2cell(internationalYout) , num2cell(totalYout) ];
+tmpOutX = cellfun(@(x) sprintf('%0.2f', x), tmpOut, 'UniformOutput',0);
+
+% Per-capita DBA
+internationalYin = FPinb(:,k); domesticYin = FPdom(:,k); totalYin = internationalYin + domesticYin; sumFP = totalYin;
+internationalYin(cFilter2==0,:) = 0; domesticYin(cFilter2==0,:) = 0; totalYin(cFilter2==0,:) = 0;
+internationalYin = internationalYin ./ (pop(:,k) + 1e-10); domesticYin = domesticYin ./ (pop(:,k) + 1e-10); totalYin = totalYin ./ (pop(:,k) + 1e-10);
+[totalYin,ind] = sort(totalYin,'descend'); internationalYin = internationalYin(ind,1); domesticYin = domesticYin(ind,1);
+tmpCountryYin = countryNames(ind,1); clear ind;
+tmpIn = [ num2cell(domesticYin) , num2cell(internationalYin) , num2cell(totalYin) ];
+tmpInX = cellfun(@(x) sprintf('%0.2f', x), tmpIn, 'UniformOutput',0);
+
+% Net balance
+internationalYin = FPinb(:,k); internationalYin(cFilter2==0,:) = 0;
+internationalYout = FPout(:,k); internationalYout(cFilter2==0,:) = 0;
+netTradeY = (internationalYout - internationalYin) ./ (pop(:,k) + 1e-10);
+[netTradeY,ind] = sort(netTradeY,'descend');
+tmpCountryY = countryNames(ind,1); clear ind;
+tmpNet = [ cellstr(tmpCountryY(netTradeY~=0,1)) , num2cell(netTradeY(netTradeY~=0,1)) ];
+tmpNetP = [ tmpNet([1:10 end-9:end],1) , tmpNet([1:10 end-9:end],2) ];
+tmpNetPX = cellfun(@(x) sprintf('%0.2f', x), tmpNetP(:,2), 'UniformOutput',0);
+
+% Draw bar graphs
+N = sum(totalYin>0);
+f = figure('Name','Top 20 ranking per capita net balance','Position',[1 1 scrsz(3)/1.2 scrsz(4)/2]);
+
+subplot(1,3,1); 
+bx = barh(cell2mat(flipud([tmpOut(select,2),tmpOut(select,1)])),'stacked','FaceColor','flat'); ylim([0,szs+1]); 
+yticks([1:szs]); yticklabels(flipud([tmpCountryYout(select,:)])); %xtickangle(85); 
+for n=1:2; bx(n).CData = flipud(faceRBA(n,:)); end
+xlim([0,round(max(cell2mat(tmpIn(select,3)))*1.1)]); % xlim([0,9]);
+ax = gca; ax.FontSize = 11; title('RBA (t CO_2-e/cap)','FontSize',14); hold all;
+legend({'Out','Dom'},'location','southeast','FontSize',10);
+
+subplot(1,3,2); 
+bx = barh(cell2mat(flipud([tmpIn(select,2),tmpIn(select,1)])),'stacked','FaceColor','flat'); ylim([0,szs+1]); 
+yticks([1:szs]); yticklabels(flipud([tmpCountryYin(select,:)])); %xtickangle(85); 
+for n=1:2; bx(n).CData = flipud(faceDBA(n,:)); end
+xlim([0,round(max(cell2mat(tmpIn(select,3)))*1.1)]); % xlim([0,9]);
+ax = gca; ax.FontSize = 11; title('DBA (t CO_2-e/cap)','FontSize',14); hold all;
+legend({'Inb','Dom'},'location','southeast','FontSize',10);
+
+subplot(1,3,3); 
+barh(cell2mat(flipud(tmpNetP(:,2))),'stacked','FaceColor',[0.4,0.4,0.4]); ylim([0,szs+1]); yticks([1:szs]); 
+yticklabels(flipud([tmpNetP(:,1)])); %xtickangle(85); 
+xlim([round(min(cell2mat(tmpNet(:,2))*11))/10,round(max(cell2mat(tmpNet(:,2))*16))/10]); 
+ax = gca; ax.FontSize = 11; title('Net RBA-DBA balance (t CO_2-e/cap)','FontSize',14);
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)])
+print(f,[resultdir 'SI-NetBalancePC.pdf'],'-dpdf','-r0')
+saveas(f,[resultdir 'SI-NetBalancePC'],'png');
+
+% Save in excel file
+flowControl = [ 'RBA (t/cap)',{'Domestic','Outbound','Total'}; tmpCountryYout(select,:),tmpOutX(select,:); cell(1,4);...
+                'DBA (t/cap)',{'Domestic','Inbound' ,'Total'}; tmpCountryYin(select,:) ,tmpInX(select,:);  cell(1,4);...
+                'Net RBA-DBA balance (t/cap)', cell(1,3);  [tmpNetP(:,1),tmpNetPX(:,1),cell(20,2)] ];
+    
+dFprofile = flowControl;
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Fig5'); 
+
+%% 36. Outbound flows by income group: tourists, expenditure, and carbon footprint
+yy2009 = squeeze(flowIncome(1,:,:)); yy2019 = squeeze(flowIncome(3,:,:));
+inclass = {'Low'; 'Lower-Middle'; 'Upper-Middle'; 'High'};
+inclassX = {'to Low (%)'; ' to Lower-Middle (%)'; 'to Upper-Middle (%)'; 'to High (%)'};
+flowControl = []; 
+
+f = figure('Name','Outbound flows by income group','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.8]); 
+for jj=1:3 
+    if  jj==1; titleGraph = 'Tourist';
+        tmp2019 = yy2019(1:4,:); tmp2009 = yy2009(1:4,:);        
+    elseif jj==2; titleGraph = 'Expenditure';
+        tmp2019 = yy2019(5:8,:); tmp2009 = yy2009(5:8,:);
+    elseif jj==3; titleGraph = 'Carbon Footprint';
+        tmp2019 = yy2019(9:12,:); tmp2009 = yy2009(9:12,:);        
+    end
+    tt = [];
+
+    subplot(3,3,1+((jj-1)*3));
+    tmpf = -(sum(tmp2019,2) ./ sum(sum(tmp2019)) * 100);
+    barh(tmpf,'stacked','FaceColor',[0.7 0.7 0.7]); ylim([0,4+1]); yticks([1:4]); 
+    yticklabels(inclass); ax = gca; ax.FontSize = 11; 
+    if jj==1; title({['Share 2019 (%)'];''},'FontSize',14); end
+    
+    xlim([-82 0]); set(gca,'XTickLabel',[]);
+    tmpText = (cellfun(@(x) sprintf('%0.1f', x), num2cell(-tmpf), 'UniformOutput',0));
+    tt = cat(2,tt,[flipud(inclass),flipud(tmpText)]);
+    for n=1:length(inclass)
+        text(tmpf(n)-2,n,tmpText(n),'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',10);
+    end
+    text(-140,5.5,['\bf'  'Outbound ' titleGraph],'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',14);    
+    pos = get(gca, 'Position'); pos(1) = pos(1) * 1.91; pos(3) = pos(3) * 0.7; set(gca, 'Position', pos);
+    
+    subplot(3,3,2+((jj-1)*3));
+    tmpf = tmp2019 ./ sum(tmp2019,2) * 100;
+    barh(tmpf,'stacked'); ylim([0,4+1]); yticks([1:4]);
+    ax = gca; ax.FontSize = 11; xlim([0 100]); set(gca,'XTickLabel',[]); set(gca,'YTickLabel',[]);  
+    if jj==1; title({['Flow 2019 (%)'];''},'FontSize',14); end
+    
+    cc = (tmpf>0); tmpPlot = tmpf .* cc; tmp1 = (cumsum(tmpPlot,2) - tmpPlot/2) .* cc;
+    cc = (tmpf<0); tmpPlot = tmpf .* cc; tmp2 = (cumsum(tmpPlot,2) - tmpPlot/2) .* cc;
+    
+    tmpX = (tmp1 + tmp2);
+    tmpText = (cellfun(@(x) sprintf('%0.1f', x), num2cell(tmpf), 'UniformOutput',0));
+    tt = cat(2,tt,flipud(tmpText));
+    tmpText = (cellfun(@(x) sprintf('%0.0f', x), num2cell(tmpf), 'UniformOutput',0));
+    for n=1:length(inclass)
+        for i=1:size(tmpText,2)
+            if ~((str2double(tmpText(n,i)) < 1) && (str2double(tmpText(n,i)) > -1))
+                if  i==1 || i==4
+                    text(tmpX(n,i),n,tmpText(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10,'Color','w');
+                else
+                    text(tmpX(n,i),n,tmpText(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);                
+                end
+            end
+        end
+    end
+    pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+       
+    subplot(3,3,3+((jj-1)*3));
+    tmpf = ((sum(tmp2019,2) ./ sum(tmp2009,2)) -1) * 100;
+    barh(tmpf,'stacked','FaceColor',[0.7 0.7 0.7]); ylim([0,4+1]); yticks([1:4]); 
+    ax = gca; ax.FontSize = 11; set(gca,'YTickLabel',[]);
+    if jj==1; title({['Growth 2009-2019 (%)'];''},'FontSize',14); end
+    
+    xlim([0 110]); set(gca,'XTickLabel',[]);
+    tmpText = (cellfun(@(x) sprintf('%0.1f', x), num2cell(tmpf), 'UniformOutput',0));
+    tt = cat(2,tt,flipud(tmpText));
+    flowControl = cat(1,flowControl,[[['Outbound ' titleGraph],'Share 2019 (%)',inclassX','Growth 2009-2019 (%)']; tt; cell(1,7)] );
+    for n=1:length(inclass)
+        text(tmpf(n)+2.5,n,tmpText(n),'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',10);
+    end
+    pos = get(gca, 'Position'); pos(1) = pos(1) * 0.92; pos(3) = pos(3) * 0.7; set(gca, 'Position', pos);
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'SI-TouristOutboundByIncomeGroup.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'SI-TouristOutboundByIncomeGroup'],'png');
+
+% Save in excel file 
+dFprofile = flowControl;
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Fig6');
+
+disp(['Plotting Global Map.']);
+%% 41. Global map RBA 2019
+world = shaperead([rawdatadir 'Map/ne_110m_admin_0_countries/ne_110m_admin_0_countries'],'UseGeoCoords',true); % Load shape files
+tmp = struct2cell(world); ccshape = tmp(15,:)'; clear tmp
+
+col = [[1.0 , 1.0 , 1.0 ] ; ... % White
+       [1.0 , 1.0,  0.9 ] ; ... 
+       [1.0 , 0.9 , 0.9 ] ; ...
+       [1.0 , 0.7 , 0.7 ] ; ...
+       [0.8,  0.4 , 0.4 ] ; ...       
+       [0.6 , 0.1 , 0.0 ] ; ...
+       [0.3 , 0.0 , 0.0 ] ; ...
+       [0.1 , 0.0 , 0.0 ] ; ... % Red
+       [0.8 , 1.0 , 1.0 ] ; ... 
+       [0.4 , 0.8 , 1.0 ] ; ...
+       [0.2 , 0.6 , 1.0 ] ; ...
+       [0.0 , 0.2 , 0.9 ] ; ...
+       [0.0 , 0.1 , 0.6 ] ; ...
+       [0.0 , 0.0 , 0.3 ] ; ...
+       [0.0 , 0.0 , 0.1 ]];     % Blue
+
+f = figure('Name','Global map RBA','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.2]);
+ax = axes; 
+for j=1:numel(world)
+    country = world(j); 
+    
+    % Get the value
+    bb = strcmp(ccshape{j},countryAcros);
+    if sum(bb)==0; value = 0;
+    else value = cfMRIO(bb,3) / 1e6; end
+
+    % Set the face color based on the value 
+    if     value==0;                 fColor = col(1,:); 
+    elseif value>0 && value<=5;      fColor = col(2,:);
+    elseif value>5 && value<=10;     fColor = col(3,:);
+    elseif value>10 && value<=50;    fColor = col(4,:);
+    elseif value>50 && value<=100;   fColor = col(5,:);    
+    elseif value>100 && value<=500;  fColor = col(6,:);
+    elseif value>500 && value<=1000; fColor = col(7,:);    
+    elseif value>1000;               fColor = col(8,:); 
+    end
+
+    % Plot the country with the specified face color 
+    geoshow(ax, country, 'FaceColor', fColor); 
+    hold on; 
+end 
+ylim([-60 100]); xlim([-180 180]); axis off; % title({[Gtitle{k} ', b'];''},'FontSize',14);
+colormap(col(1:8,:)); c = colorbar; c.Location = 'southoutside'; c.Ticks = linspace(0,1,9); c.TickLabels = {};
+ax = gca; axpos = ax.Position; c.Position(4) = 0.52*c.Position(4); ax.Position = axpos;
+
+xx = linspace(-180,180,9);
+txtmp = {'no data' '0' '5' '10' '50' '100' '500' '1000' 'Mt CO_2-e'};
+for i=2:9  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+xx = xx - ((xx(1) - xx(2))/2);
+txtmp = {'no data' '5' '10' '50' '100' '500' '1000' '>1000'};
+for i=[1 8]  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Map-RBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Map-RBA'],'png');
+
+%% 42. Global map RBA per capita 2019
+f = figure('Name','Global map RBA per capita','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.2]);
+ax = axes;
+colylw = [[1.0 , 1.0 , 1.0 ] ; ... % White
+          [1.0 , 1.0 , 0.8 ] ; ... % Yellow
+          [1.0 , 0.8 , 0.4 ] ; ...
+          [1.0 , 0.6 , 0.2 ] ; ...
+          [0.8 , 0.4 , 0.1 ] ; ...          
+          [0.6 , 0.1 , 0.0 ] ; ...
+          [0.3 , 0.0 , 0.0 ] ; ...
+          [0.1 , 0.0 , 0.0 ]];
+
+FPpcRBA = cfMRIO ./ pop; FPpcRBA(nodata,:) = 0; FPpcRBA([1:4,68],:) = 0; % Hong Kong
+for j=1:numel(world)
+    country = world(j); 
+    
+    % Get the value
+    bb = strcmp(ccshape{j},countryAcros);
+    if sum(bb)==0; value = 0;
+    else value = FPpcRBA(bb,3); end
+
+    % Set the face color based on the value 
+    if     value==0;              fColor = colylw(1,:); 
+    elseif value>0 && value<=0.5; fColor = colylw(2,:);
+    elseif value>0.5 && value<=1; fColor = colylw(3,:);
+    elseif value>1 && value<=1.5; fColor = colylw(4,:);
+    elseif value>1.5 && value<=2; fColor = colylw(5,:);    
+    elseif value>2 && value<=2.5; fColor = colylw(6,:);
+    elseif value>2.5 && value<=3; fColor = colylw(7,:);    
+    elseif value>3;               fColor = colylw(8,:); 
+    end
+
+    % Plot the country with the specified face color 
+    geoshow(ax, country, 'FaceColor', fColor); 
+    hold on; 
+end 
+ylim([-60 100]); xlim([-180 180]); axis off; title('RBA carbon footprint per capita, 2019','FontSize',16);
+colormap(colylw); c = colorbar; c.Location = 'southoutside'; c.Ticks = linspace(0,1,9); c.TickLabels = {};
+ax = gca; axpos = ax.Position; c.Position(4) = 0.52*c.Position(4); ax.Position = axpos;
+
+xx = linspace(-180,180,9);
+txtmp = {'no data' '0' '0.5' '1' '1.5' '2' '2.5' '3' 't CO_2-e/cap'};
+for i=2:9  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+xx = xx - ((xx(1) - xx(2))/2);
+txtmp = {'no data' '0.5' '1' '1.5' '2' '2.5' '3' '>3'};
+for i=[1 8]  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Map-RBApc.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Map-RBApc'],'png');
+
+% Save in excel file
+tt = cellfun(@(x) sprintf('%0.2f', x), num2cell(FPpcRBA(:,3)), 'UniformOutput',0);
+
+dFprofile = [ ['RBA carbon footprint per capita in 2019 (t/cap)',{''}]; countryNames, tt];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Map2');
+
+%% 43. Global map DBA per capita 2019
+f = figure('Name','Global map DBA per capita','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.2]);
+ax = axes;
+colblue = [[1.0 , 1.0 , 1.0 ] ; ... % White
+           [0.9 , 1.0 , 1.0 ] ; ... % Blue
+           [0.7 , 0.9 , 1.0 ] ; ... 
+           [0.5 , 0.8 , 1.0 ] ; ...
+           [0.3 , 0.6 , 1.0 ] ; ...
+           [0.1 , 0.4 , 0.9 ] ; ...
+           [0.0 , 0.2 , 0.6 ] ; ...
+           [0.0 , 0.0 , 0.3 ]];
+
+FPpcDBA = cfTSA ./ pop; FPpcDBA(nodata,:) = 0; FPpcDBA([1:4,68],:) = 0; % Hong Kong
+for j=1:numel(world)
+    country = world(j); 
+    
+    % Get the value
+    bb = strcmp(ccshape{j},countryAcros);
+    if sum(bb)==0; value = 0;
+    else value = FPpcDBA(bb,3); end
+
+    % Set the face color based on the value 
+    if     value==0;              fColor = colblue(1,:); 
+    elseif value>0 && value<=0.5; fColor = colblue(2,:);
+    elseif value>0.5 && value<=1; fColor = colblue(3,:);
+    elseif value>1 && value<=1.5; fColor = colblue(4,:);
+    elseif value>1.5 && value<=2; fColor = colblue(5,:);    
+    elseif value>2 && value<=2.5; fColor = colblue(6,:);
+    elseif value>2.5 && value<=3; fColor = colblue(7,:);    
+    elseif value>3;               fColor = colblue(8,:); 
+    end
+
+    % Plot the country with the specified face color 
+    geoshow(ax, country, 'FaceColor', fColor); 
+    hold on; 
+end 
+ylim([-60 100]); xlim([-180 180]); axis off; title('DBA carbon footprint per capita, 2019','FontSize',16);
+colormap(colblue); c = colorbar; c.Location = 'southoutside'; c.Ticks = linspace(0,1,9); c.TickLabels = {};
+ax = gca; axpos = ax.Position; c.Position(4) = 0.52*c.Position(4); ax.Position = axpos;
+
+xx = linspace(-180,180,9);
+txtmp = {'no data' '0' '0.5' '1' '1.5' '2' '2.5' '3' 't CO_2-e/cap'};
+for i=2:9  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+xx = xx - ((xx(1) - xx(2))/2);
+txtmp = {'no data' '0.5' '1' '1.5' '2' '2.5' '3' '>3'};
+for i=[1 8]  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Map-DBApc.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Map-DBApc'],'png');
+
+% Save in excel file
+tt = cellfun(@(x) sprintf('%0.2f', x), num2cell(FPpcDBA(:,3)), 'UniformOutput',0);
+
+dFprofile = [ ['DBA carbon footprint per capita in 2019 (t/cap)',{''}]; countryNames, tt];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Map1');
+
+%% 44. Global map net RBA-DBA balance per capita 2019
+f = figure('Name','Global map net RBA-DBA balance','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.2]);
+ax = axes; FPpcNet = FPpcRBA - FPpcDBA;
+coltmp = [col([1 12 11 10 9],:); colylw([2 4 6],:)];
+for j=1:numel(world)
+    country = world(j); 
+    
+    % Get the value
+    bb = strcmp(ccshape{j},countryAcros);
+    if sum(bb)==0; value = 0;
+    else value = FPpcNet(bb,3); end
+
+    % Set the face color based on the value 
+    if     value==0;              fColor = coltmp(1,:); 
+    elseif value<-3;              fColor = coltmp(2,:); 
+    elseif value<-2 && value>=-3; fColor = coltmp(3,:);
+    elseif value<-1 && value>=-2; fColor = coltmp(4,:);    
+    elseif value<0 && value>=-1;  fColor = coltmp(5,:);       
+    elseif value>0 && value<=1;   fColor = coltmp(6,:);
+    elseif value>1 && value<=2;   fColor = coltmp(7,:);
+    elseif value>2;               fColor = coltmp(8,:);
+    end
+
+    % Plot the country with the specified face color 
+    geoshow(ax, country, 'FaceColor', fColor); 
+    hold on; 
+end 
+ylim([-60 100]); xlim([-180 180]); axis off; title('Net RBA-DBA balance, 2019','FontSize',16);
+colormap(coltmp); c = colorbar; c.Location = 'southoutside'; c.Ticks = linspace(0,1,9); c.TickLabels = {};
+ax = gca; axpos = ax.Position; c.Position(4) = 0.52*c.Position(4); ax.Position = axpos;
+
+xx = linspace(-180,180,9);
+txtmp = {'-' '-' '-3' '-2' '-1' '0' '1' '2' 't CO_2-e/cap'};
+for i=3:9  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+xx = xx - ((xx(1) - xx(2))/2);
+txtmp = {'no data' '<-3' '-' '-' '-' '-' '-' '>2'};
+for i=[1 2 8]  
+    text(xx(i),-70,txtmp(i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Map-RBA_DBABalance.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Map-RBA_DBABalance'],'png');
+
+% Save in excel file
+tt = cellfun(@(x) sprintf('%0.2f', x), num2cell(FPpcNet(:,3)), 'UniformOutput',0);
+
+dFprofile = [ ['Net RBA-DBA balance in 2019 (t/cap)',{''}]; countryNames, tt];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_SupplementaryInformation' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet','SI_Map3');
+
+disp(['Plotting results for Additional Information.']);
+%% 51. CF per capita by country
+load([processeddatadir 'QCO2eIPCC.mat']);
+
+FPpc = [QCO2eIPCC(:,3), Agg1 * Agg16 * QCO2e(:,3) .* 1e3, sum(squeeze(FP1(:,:,3)),2) ./ 1e3,...
+        sum(squeeze(FP1(:,:,3)),1)' ./ 1e3] ./ pop(:,3);
+FPpc(isnan(FPpc) | isinf(FPpc)) = 0; FPpc(~cFilter,:) = 0;
+
+f=figure('Name','Comparison IPCC, GLORIA, tourism per capita CF','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.2]);
+
+subplot(2,1,1);
+[~,ind] = sort(FPpc(:,1),'descend'); tmpval = FPpc(ind(1:10),:); tmplabel = countryNames(ind(1:10),:);
+CI1 = zeros((size(tmpval,1)*(size(tmpval,2)+1))-1,1); CI2 = CI1; CI3 = CI1; CI4 = CI1; 
+qq = size(tmpval,2)+1;
+for n=1:length(tmpval)
+    CI1((qq*n)-4,:) = tmpval(n,1);
+    CI2((qq*n)-3,:) = tmpval(n,2);
+    CI3((qq*n)-2,:) = tmpval(n,3);
+    CI4((qq*n)-1,:) = tmpval(n,4);
+end
+CI = CI1 + CI2 + CI3 + CI4; aa = find(CI~=0);
+tmpCI = cellfun(@(x) sprintf('%0.1f', x), num2cell(CI), 'UniformOutput',0);
+
+b=bar(CI1); b.FaceColor = [0.6 0.4 0.2]; hold on; b=bar(CI2); b.FaceColor = [1 0.8 0.7]; hold on
+b=bar(CI3); b.FaceColor = faceDBA(1,:); hold on; b=bar(CI4); b.FaceColor = faceRBA(1,:); hold off
+ylabel('Carbon emissions (t CO_2-e/cap)'); 
+xticklabels(tmplabel); xticks([2.5:qq:qq*length(tmplabel)]); ax = gca; ax.FontSize = 12; %set(gca,'YTickLabel',[]);
+legend({'IPCC','GLORIA','tourism DBA','tourism RBA'},'location','northeast','FontSize',12);
+title('Per capita carbon emissions','FontSize',14);
+
+for n=1:length(aa)
+    if  CI(aa(n))>0
+        text(aa(n),CI(aa(n))+(0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    else
+        text(aa(n),CI(aa(n))+(-0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);        
+    end
+end
+
+subplot(2,1,2);
+[~,ind] = ismember(tmpCountryYout,countryNames); tmpval = FPpc(ind(1:10),:); tmplabel = countryNames(ind(1:10),:);
+CI1 = zeros((size(tmpval,1)*(size(tmpval,2)+1))-1,1); CI2 = CI1; CI3 = CI1; CI4 = CI1; 
+qq = size(tmpval,2)+1;
+for n=1:length(tmpval)
+    CI1((qq*n)-4,:) = tmpval(n,1);
+    CI2((qq*n)-3,:) = tmpval(n,2);
+    CI3((qq*n)-2,:) = tmpval(n,3);
+    CI4((qq*n)-1,:) = tmpval(n,4);
+end
+CI = CI1 + CI2 + CI3 + CI4; aa = find(CI~=0);
+tmpCI = cellfun(@(x) sprintf('%0.1f', x), num2cell(CI), 'UniformOutput',0);
+
+b=bar(CI1); b.FaceColor = [0.6 0.4 0.2]; hold on; b=bar(CI2); b.FaceColor = [1 0.8 0.7]; hold on
+b=bar(CI3); b.FaceColor = faceDBA(1,:); hold on; b=bar(CI4); b.FaceColor = faceRBA(1,:); hold off
+ylabel('Carbon emissions (t CO_2-e/cap)'); ylim([0,60]);
+xticklabels(tmplabel); xticks([2.5:qq:qq*length(tmplabel)]); ax = gca; ax.FontSize = 12; %set(gca,'YTickLabel',[]);
+%legend({'IPCC','GLORIA','tourism DBA','tourism RBA'},'location','northeast','FontSize',12);
+title('Per capita carbon emissions - sorted using RBA sequence','FontSize',14);
+
+for n=1:length(aa)
+    if  CI(aa(n))>0
+        text(aa(n),CI(aa(n))+(0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    else
+        text(aa(n),CI(aa(n))+(-0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);        
+    end
+end
+
+tmpR = cellfun(@(x) sprintf('%0.0f', x), num2cell(FPpc(ind,4)./FPpc(ind,2)*100), 'UniformOutput',0);
+aa = 1:5:length(CI);
+for n=1:length(aa)
+    text(2+aa(n),55,[tmpR{n} '%'],'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',14);
+end
+saveas(f,[resultdir 'Check-IPCC_GLORIA_percapita'],'png'); 
+
+%% 52. CF intensity by country
+TO = Agg1 * Agg16 * xout(:,3);
+FPq = [QCO2eIPCC(:,3), Agg1 * Agg16 * QCO2e(:,3) .* 1e3, sum(squeeze(FP1(:,:,3)),2),...
+       sum(squeeze(FP1(:,:,3)),1)'] ./ [TO, TO, yTSA(:,3), yMRIO(:,3)];
+FPq(isnan(FPq) | isinf(FPq)) = 0; FPq(~cFilter,:) = 0;
+
+f=figure('Name','Comparison IPCC, GLORIA, tourism per capita CF','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.2]);
+
+subplot(2,1,1);
+[~,ind] = sort(FPq(:,1),'descend'); tmpval = FPq(ind(1:10),:); tmplabel = countryNames(ind(1:10),:);
+CI1 = zeros((size(tmpval,1)*(size(tmpval,2)+1))-1,1); CI2 = CI1; CI3 = CI1; CI4 = CI1; 
+qq = size(tmpval,2)+1;
+for n=1:length(tmpval)
+    CI1((qq*n)-4,:) = tmpval(n,1);
+    CI2((qq*n)-3,:) = tmpval(n,2);
+    CI3((qq*n)-2,:) = tmpval(n,3);
+    CI4((qq*n)-1,:) = tmpval(n,4);
+end
+CI = CI1 + CI2 + CI3 + CI4; aa = find(CI~=0);
+tmpCI = cellfun(@(x) sprintf('%0.1f', x), num2cell(CI), 'UniformOutput',0);
+
+b=bar(CI1); b.FaceColor = [0.6 0.4 0.2]; hold on; b=bar(CI2); b.FaceColor = [1 0.8 0.7]; hold on
+b=bar(CI3); b.FaceColor = faceDBA(1,:); hold on; b=bar(CI4); b.FaceColor = faceRBA(1,:); hold off
+ylabel('kg CO_2-e/$'); ylim([0,11]);
+xticklabels(tmplabel); xticks([2.5:qq:qq*length(tmplabel)]); ax = gca; ax.FontSize = 12; %set(gca,'YTickLabel',[]);
+legend({'IPCC','GLORIA','tourism DBA','tourism RBA'},'location','northeast','FontSize',12);
+title('Carbon intensity','FontSize',14);
+
+for n=1:length(aa)
+    if  CI(aa(n))>0
+        text(aa(n),CI(aa(n))+(0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    else
+        text(aa(n),CI(aa(n))+(-0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);        
+    end
+end
+
+subplot(2,1,2);
+[~,ind] = ismember(tmpCountryYout,countryNames); tmpval = FPq(ind(1:10),:); tmplabel = countryNames(ind(1:10),:);
+CI1 = zeros((size(tmpval,1)*(size(tmpval,2)+1))-1,1); CI2 = CI1; CI3 = CI1; CI4 = CI1; 
+qq = size(tmpval,2)+1;
+for n=1:length(tmpval)
+    CI1((qq*n)-4,:) = tmpval(n,1);
+    CI2((qq*n)-3,:) = tmpval(n,2);
+    CI3((qq*n)-2,:) = tmpval(n,3);
+    CI4((qq*n)-1,:) = tmpval(n,4);
+end
+CI = CI1 + CI2 + CI3 + CI4; aa = find(CI~=0);
+tmpCI = cellfun(@(x) sprintf('%0.1f', x), num2cell(CI), 'UniformOutput',0);
+
+b=bar(CI1); b.FaceColor = [0.6 0.4 0.2]; hold on; b=bar(CI2); b.FaceColor = [1 0.8 0.7]; hold on
+b=bar(CI3); b.FaceColor = faceDBA(1,:); hold on; b=bar(CI4); b.FaceColor = faceRBA(1,:); hold off
+ylabel('kg CO_2-e/$'); ylim([0,11]);
+xticklabels(tmplabel); xticks([2.5:qq:qq*length(tmplabel)]); ax = gca; ax.FontSize = 12; %set(gca,'YTickLabel',[]);
+%legend({'IPCC','GLORIA','tourism DBA','tourism RBA'},'location','northeast','FontSize',12);
+title('Carbon intensity - sorted using RBA sequence','FontSize',14);
+
+for n=1:length(aa)
+    if  CI(aa(n))>0
+        text(aa(n),CI(aa(n))+(0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    else
+        text(aa(n),CI(aa(n))+(-0.04*max(CI)),tmpCI(aa(n)),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);        
+    end
+end
+
+tmpR = cellfun(@(x) sprintf('%0.1f', x), num2cell(FPq(ind,4)./FPq(ind,2)), 'UniformOutput',0);
+aa = 1:5:length(CI);
+for n=1:length(aa)
+    text(2+aa(n),10,[tmpR{n} 'x'],'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',14);
+end
+saveas(f,[resultdir 'Check-IPCC_GLORIA_intensity'],'png');
+
+%% 53. Progress by quadrants RBA CF
+GDP = pop .* pcGDP;
+gyMRIO = (yMRIO(:,k) ./ yMRIO(:,1)) - 1; grRBA = gyMRIO; 
+gcfMRIO = (cfMRIO(:,k) ./ cfMRIO(:,1)) - 1; grRBA = [grRBA, gcfMRIO];
+ww = GDP(cFilter,3); xx = grRBA(cFilter,1) * 100; vv = grRBA(cFilter,2) * 100; tt = countryAcros(cFilter,1);
+[~,ww10] = sort(ww,'ascend'); ww10 = ww10(end-4:end,:); [~,x1] = ismember(['IND'],tt); ww10 = [ww10;x1];
+tt10 = cell(size(xx,1),1); tt10(:) = {' '};
+for pp = 1:size(xx,1)
+    for i=1:size(ww10,1); if pp == ww10(i); tt10(pp,:) = tt(pp); end; end
+end
+
+f=figure('Name','Progress by quadrants RBA','Position',[1 1 scrsz(3)/2.5 scrsz(4)/1.8]);
+for pp = 1:size(xx,1)
+    plot(xx(pp),vv(pp),'o','Color',[0 0 0],'MarkerFaceColor',[0.8,0.8,0.8],'MarkerSize',max(1,sqrt(1000.*ww(pp)./max(ww)))); hold all; 
+end; hold all; 
+
+nm = 200; xlim([-nm nm]); ylim([-nm nm]); 
+hold on; xline(0); yline(0); hold off
+set(gca,'xtick',[]); set(gca,'ytick',[]);
+
+text(nm-10,nm-20,'Q1: Exp growth +, CF growth +','HorizontalAlignment','right','VerticalAlignment','middle','FontSize',12);
+text(-nm+10,nm-20,'Q2: Exp growth -, CF growth +','HorizontalAlignment','left','VerticalAlignment','middle','FontSize',12);
+text(-nm+10,-nm+20,'Q3: Exp growth -, CF growth -','HorizontalAlignment','left','VerticalAlignment','middle','FontSize',12);
+text(nm-10,-nm+20,'Q4: Exp growth +, CF growth -','HorizontalAlignment','right','VerticalAlignment','middle','FontSize',12);
+
+for pp = 1:size(xx,1)
+    text(xx(pp),vv(pp),ucfirst(tt10{pp}),'FontSize',max(7,sqrt(1000.*ww(pp)./max(ww))),'HorizontalAlignment','right');   
+end; hold all;
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-ProgressRBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-ProgressRBA'],'png');
+
+% Get country name 
+grRBA = grRBA(cFilter,:); grcountryRBA = countryNames(cFilter);
+filter = isnan(grRBA(:,1)) | isnan(grRBA(:,2)); grRBA = grRBA(~filter,:); grcountryRBA = grcountryRBA(~filter);
+
+filter = grRBA(:,1)>0; gr1 = grRBA(filter,:); grcountryRBA1 = grcountryRBA(filter);
+filter = gr1(:,2)>0; gr1 = gr1(filter,:); grcountryRBA1 = grcountryRBA1(filter);
+
+filter = grRBA(:,1)<0; gr2 = grRBA(filter,:); grcountryRBA2 = grcountryRBA(filter);
+filter = gr2(:,2)>0; gr2 = gr2(filter,:); grcountryRBA2 = grcountryRBA2(filter);
+
+filter = grRBA(:,1)<0; gr3 = grRBA(filter,:); grcountryRBA3 = grcountryRBA(filter);
+filter = gr3(:,2)<0; gr3 = gr3(filter,:); grcountryRBA3 = grcountryRBA3(filter);
+
+filter = grRBA(:,1)>0; gr4 = grRBA(filter,:); grcountryRBA4 = grcountryRBA(filter);
+filter = gr4(:,2)<0; gr4 = gr4(filter,:); grcountryRBA4 = grcountryRBA4(filter);
+
+%% 54. Progress by quadrants DBA CF
+gyTSA = (yTSA(:,k) ./ yTSA(:,1)) - 1; grDBA = gyTSA;
+gcfTSA = (cfTSA(:,k) ./ cfTSA(:,1)) - 1; grDBA = [grDBA, gcfTSA];
+ww = GDP(cFilter,3); xx = grDBA(cFilter,1) * 100; vv = grDBA(cFilter,2) * 100; tt = countryAcros(cFilter,1);
+[~,ww10] = sort(ww,'ascend'); ww10 = ww10(end-4:end,:); [~,x1] = ismember(['IND'],tt); ww10 = [ww10;x1];
+tt10 = cell(size(xx,1),1); tt10(:) = {' '};
+for pp = 1:size(xx,1)
+    for i=1:size(ww10,1); if pp == ww10(i); tt10(pp,:) = tt(pp); end; end
+end
+
+f=figure('Name','Progress by quadrants DBA','Position',[1 1 scrsz(3)/2.5 scrsz(4)/1.8]);
+for pp = 1:size(xx,1)
+    plot(xx(pp),vv(pp),'o','Color',[0 0 0],'MarkerFaceColor',[0.8,0.8,0.8],'MarkerSize',max(1,sqrt(1000.*ww(pp)./max(ww)))); hold all; 
+end; hold all; 
+
+nm = 200; xlim([-nm nm]); ylim([-nm nm]); 
+hold on; xline(0); yline(0); hold off
+set(gca,'xtick',[]); set(gca,'ytick',[]);
+
+text(nm-10,nm-20,'Q1: Exp growth +, CF growth +','HorizontalAlignment','right','VerticalAlignment','middle','FontSize',12);
+text(-nm+10,nm-20,'Q2: Exp growth -, CF growth +','HorizontalAlignment','left','VerticalAlignment','middle','FontSize',12);
+text(-nm+10,-nm+20,'Q3: Exp growth -, CF growth -','HorizontalAlignment','left','VerticalAlignment','middle','FontSize',12);
+text(nm-10,-nm+20,'Q4: Exp growth +, CF growth -','HorizontalAlignment','right','VerticalAlignment','middle','FontSize',12);
+
+for pp = 1:size(xx,1)
+    text(xx(pp),vv(pp),ucfirst(tt10{pp}),'FontSize',max(7,sqrt(1000.*ww(pp)./max(ww))),'HorizontalAlignment','right');  
+end; hold all;
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-ProgressDBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-ProgressDBA'],'png');
+
+% Get country name 
+grDBA = grDBA(cFilter,:); grcountryDBA = countryNames(cFilter);
+filter = isnan(grDBA(:,1)) | isnan(grDBA(:,2)); grDBA = grDBA(~filter,:); grcountryDBA = grcountryDBA(~filter);
+
+filter = grDBA(:,1)>0; gr1 = grDBA(filter,:); grcountryDBA1 = grcountryDBA(filter);
+filter = gr1(:,2)>0; gr1 = gr1(filter,:); grcountryDBA1 = grcountryDBA1(filter);
+
+filter = grDBA(:,1)<0; gr2 = grDBA(filter,:); grcountryDBA2 = grcountryDBA(filter);
+filter = gr2(:,2)>0; gr2 = gr2(filter,:); grcountryDBA2 = grcountryDBA2(filter);
+
+filter = grDBA(:,1)<0; gr3 = grDBA(filter,:); grcountryDBA3 = grcountryDBA(filter);
+filter = gr3(:,2)<0; gr3 = gr3(filter,:); grcountryDBA3 = grcountryDBA3(filter);
+
+filter = grDBA(:,1)>0; gr4 = grDBA(filter,:); grcountryDBA4 = grcountryDBA(filter);
+filter = gr4(:,2)<0; gr4 = gr4(filter,:); grcountryDBA4 = grcountryDBA4(filter);
+
+%% 55. Tourist growth 
+flow2009 = sum(squeeze(GLflow(1,:,:)),1)';
+flow2019 = sum(squeeze(GLflow(3,:,:)),1)';
+
+flowout = flow2019 - flow2009; 
+flowoutgr = (flow2019 ./ flow2009) - 1; flowoutgr(isnan(flowoutgr)) = 0;
+countryPlot = top20countryRBA(select); [aa,bb] = ismember(countryPlot,countryNames);
+
+f = figure('Name','Outbound tourism growth outbound','Position',[1 1 scrsz(3)/1.6 scrsz(4)/1.5]); 
+
+subplot(1,2,1);
+tmpf = flowout(bb,:) / 1e6; 
+barh(flipud(tmpf),'stacked'); ylim([0,szs+1]); yticks([1:szs]); 
+yticklabels(flipud(countryPlot)); set(gca,'XTickLabel',[]); 
+ax = get(gca,'YTickLabel'); set(gca,'YTickLabel',ax,'Fontsize',11); 
+title({['Outbound Tourist Change'];'2009-2019 (million)'},'FontSize',14);
+%xlim([min(min(tmpf))*2 max(sum(tmpf,2))*1.05]);
+
+cc = (tmpf>0); tmpPlot = tmpf .* cc; tmp1 = (cumsum(tmpPlot,2) - tmpPlot/2) .* cc;
+cc = (tmpf<0); tmpPlot = tmpf .* cc; tmp2 = (cumsum(tmpPlot,2) - tmpPlot/2) .* cc;
+
+tmpX = flipud(tmp1 + tmp2); tmpX2 = flipud(sum(tmpf.*(tmpf>0),2)); toutotgr = flipud(tmpX2); 
+tmpText = flipud(cellfun(@(x) sprintf('%0.1f', x), num2cell(tmpf), 'UniformOutput',0));
+tmpText2 = flipud(cellfun(@(x) sprintf('%0.1f', x), num2cell(sum(tmpf,2)), 'UniformOutput',0));
+for n=1:length(bb)
+    for i=1:size(tmpText,2)
+        if ~((str2double(tmpText(n,i)) < 1) && (str2double(tmpText(n,i)) > -1))
+            if  i==1 || i==4
+                text(tmpX(n,i),n,tmpText(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',6,'Color','w');
+            else
+                text(tmpX(n,i),n,tmpText(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',6);                
+            end
+        end
+    end
+end
+%text(-80,21.5,['\bf'  'Outbound Tourists'],'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',14);    
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1.7; pos(2) = pos(2) * 0.7; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+
+subplot(1,2,2);
+tmpf = flowoutgr(bb,:) * 100; toutotgr(:,2) = flipud(tmpX2);
+barh(flipud(tmpf),'stacked'); ylim([0,szs+1]); yticks([1:szs]); 
+set(gca,'XTickLabel',[]); set(gca,'YTickLabel',[]);
+title({['Outbound Tourist Growth'];'2009-2019 (%)'},'FontSize',14);
+%xlim([min(min(tmpf))*2 max(sum(tmpf,2))*1.05]);
+
+cc = (tmpf>0); tmpPlot = tmpf .* cc; tmp1 = (cumsum(tmpPlot,2) - tmpPlot/2) .* cc;
+cc = (tmpf<0); tmpPlot = tmpf .* cc; tmp2 = (cumsum(tmpPlot,2) - tmpPlot/2) .* cc;
+
+tmpX = flipud(tmp1 + tmp2); tmpX2 = flipud(sum(tmpf.*(tmpf>0),2));
+tmpText = flipud(cellfun(@(x) sprintf('%0.0f', x), num2cell(tmpf), 'UniformOutput',0)); 
+tmpText2 = flipud(cellfun(@(x) sprintf('%0.1f', x), num2cell(sum(tmpf,2)), 'UniformOutput',0));
+for n=1:length(bb)
+    for i=1:size(tmpText,2)
+        if ~((str2double(tmpText(n,i)) < 10) && (str2double(tmpText(n,i)) > -10))
+            if  i==1 || i==4
+                text(tmpX(n,i),n,tmpText(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',6,'Color','w');
+            else
+                text(tmpX(n,i),n,tmpText(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',6);                
+            end
+        end
+    end
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(2) = pos(2) * 0.7; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-TouristGrowthOutbound.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-TouristGrowthOutbound'],'png');
+
+%% 56. Transport profiles: Compare to UNWTO
+itemsTransUN = [13 14 12 10]; % Rail, Air, Road, Petrol
+itemsTrans = [13 14 12 15 11 10];
+%FPsecAbbrev = {'Ag';'Min';'Food';'Goods';'Utils';'Constr';'Trade';'Sv';'Acc';'PV';'Fuel';'Road';'Rail';'Air';'Water';'TranSv'};
+cmptrans     = [[0.0  0.1   0.0    1.0     1.0     0.0      0.5     1.0  1.0   1.0  0.7    1.0    0.0    0.8   0.0     0.8]', ... 
+                [0.5  0.8   1.0    1.0     1.0     0.0      0.5     0.8  0.5   0.2  0.7    1.0    0.4    0.8   0.0     0.8]', ...    
+                [0.0  0.1   0.0    1.0     0.0     0.0      0.5     0.8  0.5   0.2  1.0    0.0    0.4    0.8   1.0     0.8]' ];
+
+% Separate domestic and inbound
+for k=1:5; FP16Dom(:,:,k) = FP16(:,:,k) .* concDom; end
+FP16YrDom = squeeze(sum(sum(reshape(FP16Dom,[16,NCOUN,NCOUN,5]),3),2));
+for k=1:5; FP16Inb(:,:,k) = FP16(:,:,k) .* (1-concDom); end
+FP16YrInb = squeeze(sum(sum(reshape(FP16Inb,[16,NCOUN,NCOUN,5]),3),2));
+for k=1:5; FP16directDom(:,:,k) = FP16direct(:,:,k) .* concDom; end
+FP16YrDomdirect = squeeze(sum(sum(reshape(FP16directDom,[16,NCOUN,NCOUN,5]),3),2));
+for k=1:5; FP16directInb(:,:,k) = FP16direct(:,:,k) .* (1-concDom); end
+FP16YrInbdirect = squeeze(sum(sum(reshape(FP16directInb,[16,NCOUN,NCOUN,5]),3),2));
+FP16YrDomindirect = FP16YrDom - FP16YrDomdirect;
+FP16YrInbindirect = FP16YrInb - FP16YrInbdirect;
+
+% Specify results
+unEst = [282,16,55,559;397,4,1,56]'; unEst = unEst([2 1 3 4],:); unEst(5,:) = sum(unEst,1);
+unEstCum = cumsum(unEst,1) - unEst/2;
+dirEst = [FP16YrDomdirect(itemsTrans,3)/1e9,FP16YrInbdirect(itemsTrans,3)/1e9]; dirEst(7,:) = sum(dirEst,1);
+dirEstCum = cumsum(dirEst,1) - dirEst/2;
+grEst = [FP16YrDom(itemsTrans,3)/1e9,FP16YrInb(itemsTrans,3)/1e9]; grEst(7,:) = sum(grEst,1);
+grEstCum = cumsum(grEst,1) - grEst/2;
+
+f = figure('Name','Transport profile','Position',[1 1 scrsz(3)/1.4 scrsz(4)/2]);
+
+subplot(1,3,1); 
+bx = bar(unEst(1:4,:)','stacked','FaceColor','flat'); xticklabels({'Dom','Int'});
+for n=1:4; bx(n).CData = cmptrans(itemsTransUN(n),:); end
+ax = gca; ax.FontSize = 12; title(['UNWTO (Mt), 2016'],'FontSize',14); 
+
+unEstX = cellfun(@(x) sprintf('%0.0f', x), num2cell(unEst), 'UniformOutput',0);
+for i=1:2
+    for n=1:4
+        text(i,unEstCum(n,i),unEstX(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    end
+    text(i,unEst(5,i),unEstX(5,i),'HorizontalAlignment','center','VerticalAlignment','bottom','FontSize',10);
+end
+ylim([0 1900]);
+
+subplot(1,3,2); 
+bx = bar(dirEst(1:6,:)','stacked','FaceColor','flat'); xticklabels({'Dom','Int'}); set(gca,'YTickLabel',[]);
+for n=1:6; bx(n).CData = cmptrans(itemsTrans(n),:); end
+ax = gca; ax.FontSize = 12; title(['Direct (Mt), 2019'],'FontSize',14); 
+
+dirEstX = cellfun(@(x) sprintf('%0.0f', x), num2cell(dirEst), 'UniformOutput',0);
+for i=1:2
+    for n=1:6
+        text(i,dirEstCum(n,i),dirEstX(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    end
+    text(i,dirEst(7,i),dirEstX(7,i),'HorizontalAlignment','center','VerticalAlignment','bottom','FontSize',10);
+end
+ylim([0 1900]);
+pos = get(gca, 'Position'); pos(1) = pos(1) * 0.917; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+
+subplot(1,3,3); 
+bx = bar(grEst(1:6,:)','stacked','FaceColor','flat'); xticklabels({'Dom','Int'}); set(gca,'YTickLabel',[]);
+for n=1:6; bx(n).CData = cmptrans(itemsTrans(n),:); end
+ax = gca; ax.FontSize = 12; title(['Direct and Indirect (Mt), 2019'],'FontSize',14); 
+
+grEstX = cellfun(@(x) sprintf('%0.0f', x), num2cell(grEst), 'UniformOutput',0);
+for i=1:2
+    for n=1:6
+        text(i,grEstCum(n,i),grEstX(n,i),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    end
+    text(i,grEst(7,i),grEstX(7,i),'HorizontalAlignment','center','VerticalAlignment','bottom','FontSize',10);
+end
+ylim([0 1900]);
+
+h_leg = legend({'Rail';'Air';'Road';'Water';'Fuel';'PV'},'location','eastoutside','FontSize',12,'FontAngle','italic'); legend boxoff;
+pos = get(gca, 'Position'); pos(1) = pos(1) * 0.9; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-TourismTransportUNWTO.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-TourismTransportUNWTO'],'png');
+
+%% 57. Transport profile
+itemsTransTSA = repmat([13 12 14 15 11],[1 4]);
+itemsTransTSA2 = repmat([13 12 14 15 10],[1 4]);
+conc16 = xlsread([concdir 'ConcGLORIA16sec' '.xlsx'],'Sheet1','D4:S123')';
+load([processeddatadir 'yDom.mat']); load([processeddatadir 'yInb.mat']);
+yDom16 = conc16 * squeeze(sum(yDom,2))'; yInb16 = conc16 * squeeze(sum(yInb,2))';
+facecol = [[0.3    0.3    0.4   ];...
+           [0.9    0.9    0.8   ]];
+
+f = figure('Name','Transport profile','Position',[1 1 scrsz(3)/1 scrsz(4)/1.6]);
+
+for m=1:10
+    subplot(2,5,m);    
+    if  m<=5
+        tmp = [yInb16(itemsTransTSA(m),:); yDom16(itemsTransTSA(m),:)]' ./ 1e3;      
+    elseif m>5 
+        tmp = [FP16YrInb(itemsTransTSA(m),:); FP16YrDom(itemsTransTSA2(m),:)]' ./ 1e9;
+    end
+
+    bx = bar(tmp,'stacked','FaceColor','flat'); xticklabels(GLyears);
+    for n=1:2; bx(n).CData = flipud(facecol(n,:)); end; ylim([0 max(sum(tmp,2))*1.1]);
+    ax = gca; ax.FontSize = 10; 
+
+    if  m<=5        
+        title([FPsecAbbrev{itemsTransTSA(m)} ' expenditure ($bn)'],'FontSize',14);
+        tmpX = cellfun(@(x) sprintf('%0.0f', x), num2cell(tmp), 'UniformOutput',0);        
+    elseif m>5
+        title([FPsecAbbrev{itemsTransTSA2(m)} ' emissions (Mt)'],'FontSize',14);
+        tmpX = cellfun(@(x) sprintf('%0.0f', x), num2cell(tmp), 'UniformOutput',0);
+    end
+
+    tmpCum = cumsum(tmp,2) - tmp/2;
+    for n=1:5
+        text(n,tmpCum(n,1),tmpX(n,1),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10,'Color',[1 1 1]);
+        text(n,tmpCum(n,2),tmpX(n,2),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    end
+
+    if  m==10
+        h_leg = legend({'International';'Domestic'},'location','southeastoutside','FontSize',12,'FontAngle','italic'); legend boxoff;
+        pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+    end
+end
+saveas(f,[resultdir 'Check-TourismTransportProfile'],'png');
+
+%% 57. Accommodation profile
+itemsTransTSA = repmat([3 4 7 8 9],[1 4]);
+
+f = figure('Name','Transport profile','Position',[1 1 scrsz(3)/1 scrsz(4)/1.6]);
+
+for m=1:10
+    subplot(2,5,m);    
+    if  m<=5
+        tmp = [yInb16(itemsTransTSA(m),:); yDom16(itemsTransTSA(m),:)]' ./ 1e3;      
+    elseif m>5 
+        tmp = [FP16YrInb(itemsTransTSA(m),:); FP16YrDom(itemsTransTSA(m),:)]' ./ 1e9;
+    end
+
+    bx = bar(tmp,'stacked','FaceColor','flat'); xticklabels(GLyears);
+    for n=1:2; bx(n).CData = flipud(facecol(n,:)); end; ylim([0 max(sum(tmp,2))*1.1]);
+    ax = gca; ax.FontSize = 10; 
+
+    if  m<=5        
+        title([FPsecAbbrev{itemsTransTSA(m)} ' expenditure ($bn)'],'FontSize',14);
+        tmpX = cellfun(@(x) sprintf('%0.0f', x), num2cell(tmp), 'UniformOutput',0);        
+    elseif m>5
+        title([FPsecAbbrev{itemsTransTSA(m)} ' emissions (Mt)'],'FontSize',14);
+        tmpX = cellfun(@(x) sprintf('%0.0f', x), num2cell(tmp), 'UniformOutput',0);
+    end
+
+    tmpCum = cumsum(tmp,2) - tmp/2;
+    for n=1:5
+        text(n,tmpCum(n,1),tmpX(n,1),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10,'Color',[1 1 1]);
+        text(n,tmpCum(n,2),tmpX(n,2),'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',10);
+    end
+
+    if  m==10
+        h_leg = legend({'International';'Domestic'},'location','southeastoutside','FontSize',12,'FontAngle','italic'); legend boxoff;
+        pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+    end
+end
+saveas(f,[resultdir 'Check-TourismAccProfile'],'png');
+close all
+
+disp(['Plotting decomposition results.']);
+%% 71. Net increase CF decomposition
+deltaLegend = {'Technology';'Supply chain';'Expenditure';'Population';'Private vehicles'};
+
+deltaFP = str2double(MaintextDelta(3:6,2:4));
+deltaPlot = str2double(MaintextDelta(8:12,4));
+
+f = figure('Name','Net increase decomposition','Position',[1 1 scrsz(3)/1.4 scrsz(4)/1.8]);
+
+hAxes = subplot(1,3,1);
+sumPlot = [deltaFP(1,3), 0, deltaFP(1,3); 0, 0, deltaFP(3,3)]; 
+sumPlot(3,:) = sum(sumPlot,1); sumPlot(4,end) = sumPlot(1,end) + (sumPlot(2,end)/2);
+
+bx = bar(sumPlot(1:2,:)','stacked','FaceColor','flat'); 
+bx(1).CData = facecol(1,:); bx(2).CData = facecol(2,:);
+ax = gca; ax.FontSize = 12; set(gca,'XTickLabel',[]);
+ax.YAxis.Visible = 'off'; ax.XAxis.Visible = 'off';
+ylim([-4000 round(max(max(sumPlot))*10*1.1) / 10]);
+
+tmpX = cellfun(@(x) sprintf('%0.1f', x), num2cell(sumPlot/1000), 'UniformOutput',0);
+for n=[1 3]
+    text(n,sumPlot(3,n)+40,tmpX(3,n),'HorizontalAlignment','center','VerticalAlignment','bottom','FontSize',11);
+    text(n,-80,num2str(GLyears(n)),'HorizontalAlignment','center','VerticalAlignment','top','FontSize',12);
+end
+h = text(0,(max(max(sumPlot))/2)+200,'Carbon footprint (Gt CO_2-e)','HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+set(h,'Rotation',90);
+
+axis(hAxes, [xlim ylim]); hold on; 
+line([3.4,5.33],[max(max(sumPlot)),max(ylim)-10],'Clipping','off','Color','black','LineStyle',':'); 
+line([3.4,5.33],[max(sumPlot(:,1)),max(sumPlot(:,3))/3.1],'Clipping','off','Color','black','LineStyle',':'); hold off
+
+subplot(2,3,2);
+faceDecom = [[0      0.4470 0.7410];...
+             [0.8500 0.3250 0.0980];...
+             [0.9290 0.6940 0.1250];...
+             [0.4940 0.1840 0.5560];...
+             [0.4660 0.6740 0.1880]];
+
+bx = barh(flipud(deltaPlot),'stacked','FaceColor','flat'); 
+bx.CData = flipud(faceDecom); 
+set(gca,'YTickLabel',flipud(deltaLegend)); set(gca,'YAxisLocation','right'); ax = gca; ax.FontSize = 12;
+set(gca,'XTickLabel',[]);  
+maxV = max(deltaPlot); minV = min(deltaPlot); xlim([minV-(0.64*maxV) maxV*1.56]);
+
+tmpX = cellfun(@(x) sprintf('%0.1f', x), num2cell(flipud(deltaPlot/1000)), 'UniformOutput',0);
+tmp = flipud(deltaPlot);
+for n=1:5
+    if  tmp(n)<0
+        text(tmp(n)-70,n,tmpX(n),'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',11);
+    else
+        text(tmp(n)+90,n,tmpX(n),'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    end
+end
+tmpX = cellfun(@(x) sprintf('%0.1f', x), num2cell(sum(deltaPlot/1000)), 'UniformOutput',0);
+FPgrow = (sum(sum(FP1(:,:,3))) ./ sum(sum(FP1(:,:,1)))) ^ (1/10) - 1;
+FPgrowX = cellfun(@(x) sprintf('%0.1f', x), num2cell(FPgrow*100), 'UniformOutput',0);
+text((maxV+minV)/2,-1.2,{['Net increase: ' tmpX{1} ' Gt'];['Growth: ' FPgrowX{1} '% per annum']},...
+     'HorizontalAlignment','center','VerticalAlignment','middle','FontSize',12);
+pos = get(gca, 'Position'); pos(1) = pos(1) * 0.97; pos(3) = pos(3) * 0.7; set(gca, 'Position', pos);
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Main-NetIncrease.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Main-NetIncrease'],'png');
+
+% Save in excel file
+tmp = cellfun(@(x) sprintf('%0.1f', x), num2cell(str2double(MaintextDelta([3:5 8:13],4))), 'UniformOutput',0);
+
+dFprofile = [ MaintextDelta(2:5,1), [{''}; tmp(1:3,:)]; cell(1,2); MaintextDelta(7:13,1), [{''}; tmp(4:9,:)] ];
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_Fig2' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false);
+
+%% 72. Top 20 ranking RBA CF decomposition
+countryDecom = top20countryRBA(select10); [aa,bb] = ismember(countryDecom,countryNames);
+domesticDelta = squeeze(sum(deltaDom,1)); internationalDelta = squeeze(sum(deltaInb,1));
+totalDelta = internationalDelta + domesticDelta;
+
+internationalDelta(:,6) = sum(internationalDelta(:,1:5) .* (internationalDelta(:,1:5)<0),2);
+internationalDelta(:,7) = sum(internationalDelta(:,1:5) .* (internationalDelta(:,1:5)>0),2);
+domesticDelta(:,6) = sum(domesticDelta(:,1:5) .* (domesticDelta(:,1:5)<0),2);
+domesticDelta(:,7) = sum(domesticDelta(:,1:5) .* (domesticDelta(:,1:5)>0),2);
+totalDelta(:,6) = sum(totalDelta(:,1:5) .* (totalDelta(:,1:5)<0),2);
+totalDelta(:,7) = sum(totalDelta(:,1:5) .* (totalDelta(:,1:5)>0),2);
+
+flowControl = [];
+f = figure('Name','Top 20 ranking RBA decomposition','Position',[1 1 scrsz(3)/1.1 scrsz(4)/2.4]); 
+for jj=1:3
+    if  jj==1
+        tmpf = domesticDelta(bb,1:5); x1 = domesticDelta(bb,7); x2 = domesticDelta(bb,6);
+        titleGraph = 'Domestic';
+    elseif jj==2
+        tmpf = internationalDelta(bb,1:5); x1 = internationalDelta(bb,7); x2 = internationalDelta(bb,6);
+        titleGraph = 'Outbound';
+    elseif jj==3
+        tmpf = totalDelta(bb,1:5); x1 = totalDelta(bb,7); x2 = totalDelta(bb,6);
+        titleGraph = 'Total';    
+    end
+
+    subplot(1,5,1+jj);
+    bx = barh(flipud(tmpf),'stacked'); ylim([0,szs10+1]); yticks([1:szs10]); 
+    yticklabels(flipud([countryDecom]));  
+    ax = gca; ax.FontSize = 12; title([titleGraph ' (Mt CO_2-e)'],'FontSize',14); 
+    maxV = max(totalDelta(bb,7)); minV = min(totalDelta(bb,6)); xlim([minV-(0.33*maxV) maxV*1.3]);
+    set(gca,'XTick',[-300 : 300 : 600]);
+    if jj~=1; set(gca,'YTickLabel',[]); end
+    
+    y1 = flipud(cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0)); 
+    y2 = flipud(cellfun(@(x) sprintf('%0.0f', x), num2cell(x2), 'UniformOutput',0));  
+    for n=1:10
+        text(x1(11-n)+30,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+        text(x2(11-n)-20,n,y2{n},'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',11);
+    end
+    pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1.25; set(gca, 'Position', pos);
+    
+    if  jj==3
+        h_leg = legend(deltaLegend,'location','eastoutside','FontSize',12); legend boxoff;
+        pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1; set(gca, 'Position', pos);
+    end
+
+    tmpfX = cellfun(@(x) sprintf('%0.1f', x), num2cell(tmpf), 'UniformOutput',0);
+    y1 = flipud(cellfun(@(x) sprintf('%0.1f', x), num2cell(x1), 'UniformOutput',0)); 
+    y2 = flipud(cellfun(@(x) sprintf('%0.1f', x), num2cell(x2), 'UniformOutput',0)); 
+    tt = [ [[titleGraph ' (Mt)'],deltaLegend','Cummulative negative','Cummulative positive']; countryDecom,[tmpfX,flipud(y2),flipud(y1)]; cell(1,8)];
+    flowControl = cat(1,flowControl,tt); 
+end
+
+set(f,'Units','Inches'); pos = get(f,'Position');
+set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+print(f,[resultdir 'Main-DecompositionRankingRBA.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Main-DecompositionRankingRBA'],'png');
+
+% Save in excel file
+dFprofile = flowControl;
+MfullTab = array2table(dFprofile);
+filename = [resultdir 'SourceData_Fig3' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false);    
+
+%% 73. Profile of top 10 countries RBA decomposition
+f = figure('Name','Graph top 10 countries RBA','Position',[1 1 scrsz(3)/1.2 scrsz(4)/1.6]); 
+countryDecom = top20countryRBA(select10); [aa,bb] = ismember(countryDecom,countryNames);
+
+for j=1:10
+    subplot(2,5,j);
+    tmp = totalDelta(bb(j),1:5);
+    bx = barh(flipud(tmp'),'stacked','FaceColor','flat'); ylim([0,5+1]); yticks([1:5]);
+    bx.CData = flipud(faceDecom);
+    title([countryNames(bb(j))],'FontSize',12,'FontWeight','Normal'); set(gca,'YTickLabel',[]);
+    maxV = max(tmp); minV = min(tmp); xlim([minV-(0.25*maxV) maxV*1.25]);
+
+    tmpX = (cellfun(@(x) sprintf('%0.0f', x), num2cell(sum(tmp)), 'UniformOutput',0)); 
+    text(maxV*1.1,5.6,['\it' tmpX],'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',10);
+end
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-Top10Decomposition.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-Top10Decomposition'],'png');
+
+%% 74.a Graph sectoral decomposition
+dDom16 = deltaDom16; dDom16(10,:) = 0; 
+dInb16 = deltaInb16; dInb16(10,:) = 0; dTot16 = dDom16 + dInb16; 
+dDom16(:,6) = sum(dDom16(:,1:4) .* (dDom16(:,1:4)<0),2);
+dDom16(:,7) = sum(dDom16(:,1:4) .* (dDom16(:,1:4)>0),2);
+dInb16(:,6) = sum(dInb16(:,1:4) .* (dInb16(:,1:4)<0),2);
+dInb16(:,7) = sum(dInb16(:,1:4) .* (dInb16(:,1:4)>0),2);
+dTot16(:,6) = sum(dTot16(:,1:4) .* (dTot16(:,1:4)<0),2);
+dTot16(:,7) = sum(dTot16(:,1:4) .* (dTot16(:,1:4)>0),2);
+
+f = figure('Name','Graph sectoral decomposition','Position',[1 1 scrsz(3)/1.5 scrsz(4)/1.6]);
+szsD = 14;
+
+% Domestic
+[~,bb] = sort(sum(dDom16(:,1:4),2),'descend'); bb = bb(1:szsD);
+subplot(2,3,1);
+tmpf = [FP16YrDomdirect(bb,3) - FP16YrDomdirect(bb,1), FP16YrDomindirect(bb,3) - FP16YrDomindirect(bb,1)] ./ 1e9; x1 = flipud(sum(tmpf,2));
+bx = barh(flipud(tmpf),'stacked','FaceColor','flat'); bx(1).CData = [0.9 0.9 0.9]; bx(2).CData = [0.4 0.5 0.6];  
+ylim([0,szsD+1]); yticks([1:szsD]); yticklabels(flipud([FPsecLabels(bb)])); %set(gca,'YTickLabel',[]); 
+ax = gca; ax.FontSize = 12; title(['Domestic'],'FontSize',14); 
+maxV = max(max([sum(dDom16(:,1:4),2) sum(dInb16(:,1:4),2)])); minV = min(x1); xlim([minV maxV*1.15]);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+4,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1.25; set(gca, 'Position', pos);
+
+subplot(2,3,2);
+tmpf = dDom16(bb,1:5); x1 = flipud(dDom16(bb,7)); x2 = flipud(dDom16(bb,6));
+bx = barh(flipud(tmpf),'stacked');  
+set(gca,'YTickLabel',[]); ylim([0,szsD+1]); yticks([1:szsD]); %yticklabels(flipud([FPsecLabels(bb)])); 
+ax = gca; ax.FontSize = 12; title(['Driver'],'FontSize',14); 
+maxV = max(max([dDom16(:,7) dInb16(:,7)])); minV = min(min([dDom16(:,6) dInb16(:,6)])); xlim([minV-(0.15*maxV) maxV*1.15]);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0); 
+y2 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x2), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    text(x2(n)-5,n,y2{n},'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 2.25; set(gca, 'Position', pos);
+
+% International
+[~,bb] = sort(sum(dInb16(:,1:4),2),'descend'); bb = bb(1:szsD);
+subplot(2,3,4);
+tmpf = [FP16YrInbdirect(bb,3) - FP16YrInbdirect(bb,1), FP16YrInbindirect(bb,3) - FP16YrInbindirect(bb,1)] ./ 1e9; x1 = flipud(sum(tmpf,2));
+bx = barh(flipud(tmpf),'stacked','FaceColor','flat'); bx(1).CData = [0.9 0.9 0.9]; bx(2).CData = [0.4 0.5 0.6]; 
+yticklabels(flipud([FPsecLabels(bb)])); ylim([0,szsD+1]); yticks([1:szsD]); % set(gca,'YTickLabel',[]);  
+ax = gca; ax.FontSize = 12; title(['International'],'FontSize',14); 
+maxV = max(max([sum(dDom16(:,1:4),2) sum(dInb16(:,1:4),2)])); minV = min(x1); xlim([minV maxV*1.15]);
+legend({'Direct','Indirect'},'location','southeast','FontSize',10);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1.25; set(gca, 'Position', pos);
+
+subplot(2,3,5);
+tmpf = dInb16(bb,1:5); x1 = flipud(dInb16(bb,7)); x2 = flipud(dInb16(bb,6));
+bx = barh(flipud(tmpf),'stacked');  
+set(gca,'YTickLabel',[]); ylim([0,szsD+1]); yticks([1:szsD]); %yticklabels(flipud([FPsecLabels(bb)]));
+ax = gca; ax.FontSize = 12; title(['Driver'],'FontSize',14); 
+maxV = max(max([dDom16(:,7) dInb16(:,7)])); minV = min(min([dDom16(:,6) dInb16(:,6)])); xlim([minV-(0.15*maxV) maxV*1.15]);
+legend(deltaLegend{1:4},'location','southeast','FontSize',10);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0); 
+y2 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x2), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    text(x2(n)-5,n,y2{n},'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 2.25; set(gca, 'Position', pos);
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-SectoralDecomposition.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-SectoralDecomposition'],'png');
+
+%% 74.b Graph sectoral decomposition: PV included
+dDom16 = deltaDom16; dDom16(11,:) = deltaDom16(11,:) + deltaDom16(10,:); dDom16(10,:) = 0; 
+dInb16 = deltaInb16; dInb16(11,:) = deltaInb16(11,:) + deltaInb16(10,:); dInb16(10,:) = 0; dTot16 = dDom16 + dInb16; 
+dDom16(:,6) = sum(dDom16(:,1:4) .* (dDom16(:,1:4)<0),2);
+dDom16(:,7) = sum(dDom16(:,1:4) .* (dDom16(:,1:4)>0),2);
+dInb16(:,6) = sum(dInb16(:,1:4) .* (dInb16(:,1:4)<0),2);
+dInb16(:,7) = sum(dInb16(:,1:4) .* (dInb16(:,1:4)>0),2);
+dTot16(:,6) = sum(dTot16(:,1:4) .* (dTot16(:,1:4)<0),2);
+dTot16(:,7) = sum(dTot16(:,1:4) .* (dTot16(:,1:4)>0),2);
+
+f = figure('Name','Graph sectoral decomposition','Position',[1 1 scrsz(3)/1.5 scrsz(4)/1.6]);
+
+% Domestic
+[~,bb] = sort(sum(dDom16(:,1:4),2),'descend'); bb = bb(1:szsD);
+subplot(2,3,1);
+tmpf = [FP16YrDomdirect(:,3) - FP16YrDomdirect(:,1), FP16YrDomindirect(:,3) - FP16YrDomindirect(:,1)] ./ 1e9; 
+tmpf(11,:) = tmpf(11,:) + tmpf(10,:); tmpf(10,:) = 0; tmpf = tmpf(bb,:); x1 = flipud(sum(tmpf,2));
+bx = barh(flipud(tmpf),'stacked','FaceColor','flat'); bx(1).CData = [0.9 0.9 0.9]; bx(2).CData = [0.4 0.5 0.6];  
+ylim([0,szsD+1]); yticks([1:szsD]); yticklabels(flipud([FPsecLabels(bb)])); %set(gca,'YTickLabel',[]); 
+ax = gca; ax.FontSize = 12; title(['Domestic'],'FontSize',14); 
+maxV = max(max([sum(dDom16(:,1:4),2) sum(dInb16(:,1:4),2)])); minV = min(x1); xlim([minV maxV*1.15]);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1.25; set(gca, 'Position', pos);
+
+subplot(2,3,2);
+tmpf = dDom16(bb,1:5); x1 = flipud(dDom16(bb,7)); x2 = flipud(dDom16(bb,6));
+bx = barh(flipud(tmpf),'stacked');  
+set(gca,'YTickLabel',[]); ylim([0,szsD+1]); yticks([1:szsD]); %yticklabels(flipud([FPsecLabels(bb)])); 
+ax = gca; ax.FontSize = 12; title(['Driver'],'FontSize',14); 
+maxV = max(max([dDom16(:,7) dInb16(:,7)])); minV = min(min([dDom16(:,6) dInb16(:,6)])); xlim([minV-(0.15*maxV) maxV*1.15]);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0); 
+y2 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x2), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    text(x2(n)-5,n,y2{n},'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 2.25; set(gca, 'Position', pos);
+
+% International
+[~,bb] = sort(sum(dInb16(:,1:4),2),'descend'); bb = bb(1:szsD);
+subplot(2,3,4);
+tmpf = [FP16YrInbdirect(:,3) - FP16YrInbdirect(:,1), FP16YrInbindirect(:,3) - FP16YrInbindirect(:,1)] ./ 1e9; 
+tmpf(11,:) = tmpf(11,:) + tmpf(10,:); tmpf(10,:) = 0; tmpf = tmpf(bb,:); x1 = flipud(sum(tmpf,2));
+bx = barh(flipud(tmpf),'stacked','FaceColor','flat'); bx(1).CData = [0.9 0.9 0.9]; bx(2).CData = [0.4 0.5 0.6]; 
+yticklabels(flipud([FPsecLabels(bb)])); ylim([0,szsD+1]); yticks([1:szsD]); % set(gca,'YTickLabel',[]);  
+ax = gca; ax.FontSize = 12; title(['International'],'FontSize',14); 
+maxV = max(max([sum(dDom16(:,1:4),2) sum(dInb16(:,1:4),2)])); minV = min(x1); xlim([minV maxV*1.15]);
+legend({'Direct','Indirect'},'location','southeast','FontSize',10);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 1.25; set(gca, 'Position', pos);
+
+subplot(2,3,5);
+tmpf = dInb16(bb,1:5); x1 = flipud(dInb16(bb,7)); x2 = flipud(dInb16(bb,6));
+bx = barh(flipud(tmpf),'stacked');  
+set(gca,'YTickLabel',[]); ylim([0,szsD+1]); yticks([1:szsD]); %yticklabels(flipud([FPsecLabels(bb)]));
+ax = gca; ax.FontSize = 12; title(['Driver'],'FontSize',14); 
+maxV = max(max([dDom16(:,7) dInb16(:,7)])); minV = min(min([dDom16(:,6) dInb16(:,6)])); xlim([minV-(0.15*maxV) maxV*1.15]);
+legend(deltaLegend{1:4},'location','southeast','FontSize',10);
+
+y1 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x1), 'UniformOutput',0); 
+y2 = cellfun(@(x) sprintf('%0.0f', x), num2cell(x2), 'UniformOutput',0);  
+for n=1:szsD
+    text(x1(n)+5,n,y1{n},'HorizontalAlignment','left','VerticalAlignment','middle','FontSize',11);
+    text(x2(n)-5,n,y2{n},'HorizontalAlignment','right','VerticalAlignment','middle','FontSize',11);
+end
+pos = get(gca, 'Position'); pos(1) = pos(1) * 1; pos(3) = pos(3) * 2.25; set(gca, 'Position', pos);
+
+% set(f,'Units','Inches'); pos = get(f,'Position');
+% set(f,'PaperPositionMode','Auto','PaperUnits','Inches','PaperSize',[pos(3), pos(4)]);
+% print(f,[resultdir 'Check-SectoralDecomposition_PV.pdf'],'-dpdf','-r0');
+saveas(f,[resultdir 'Check-SectoralDecomposition_PV'],'png');
+   
+close all; clc;
