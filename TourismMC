@@ -1,0 +1,143 @@
+%% Uncertainty analysis for the tourism carbon footprint study 20240624
+
+%% 1. Initialisation
+%clear; clc; close all; 
+tStart = tic; disp('Initialising...');
+
+% Change with local directory !!
+if strcmp(computer,'MACA64')
+    workdir = '/Users/futufaturay/Desktop/2025_Tourism/';
+else
+    workdir = '/home/uqffatur/Documents/2025_Tourism/';
+    addpath('/home/uqffatur/Documents/2025_Tourism/datafeeds_code/');
+end
+
+gloriadir = [workdir 'RawData/GLORIA/'];
+rawdatadir = [workdir 'RawData/']; 
+concdir = [workdir 'Concordances/'];
+processeddatadir = [workdir 'ProcessedData/'];
+resultdir = [workdir 'ResultFiles/']; 
+
+NMC = 1000; % Number of Monte-Carlo simulations
+yy = 2019; NS = 120; NCOUN = 164; NYear = 5; 
+scrsz = get(groot,'ScreenSize');
+
+%% 2. Load data
+% Concordances
+load([concdir 'Agg16.mat']); 
+load([concdir 'Agg1.mat']);
+load([concdir 'concGLORIA2TSAreg.mat']);
+load([concdir 'concGLORIA2TSAsec.mat']);
+load([concdir 'concDomGL.mat']);
+load([concdir 'concTrans.mat']);
+load([concdir 'needAvi.mat']);
+
+% GLORIA multiplier
+ID0 = importdata([gloriadir '057/' 'T_' num2str(yy) '.mat']);
+FD0 = importdata([gloriadir '057/' 'Y_' num2str(yy) '.mat']);
+x0 = importdata([gloriadir '057/' 'x_' num2str(yy) '.mat']);
+load([processeddatadir 'QCO2e' '.mat']); Q0 = QCO2e(:,3); clear QCO2e;
+tmpQ = log10(abs(Q0)+1); QSD = Q0 .* (2 - (tmpQ-min(tmpQ))./(max(tmpQ)-min(tmpQ)).*0.95); clear tmpQ;
+load([processeddatadir 'IDSD' '.mat']);
+load([processeddatadir 'FDSD' '.mat']);
+
+% Tourism expenditure
+load([processeddatadir 'TSAdom.mat']);
+tmp = concGLORIA2TSAreg * squeeze(TSAdom(3,:,:)); tmp(1:4,:) = 0; STdom0 = sum(tmp,1)'; clear tmp
+load([processeddatadir 'TSAinb.mat']); 
+tmp = concGLORIA2TSAreg * squeeze(TSAinb(3,:,:)); tmp(1:4,:) = 0; STinb0 = sum(tmp,1)'; clear tmp
+load([processeddatadir 'TSAflow.mat']);
+load([processeddatadir 'petrolPrice.mat']);
+load([processeddatadir 'nodata.mat']);
+load([processeddatadir 'aviGL.mat']); aviGL0 = aviGL(:,3); clear aviGL;
+load([resultdir 'FP16year.mat']); FP10 = FP16year(:,3); clear FP16year;
+
+%% 3. Monte-Carlo simulation
+% 3.0 Calculate SDs in logs (see ESR 22(1) pp.43-63; Lenzen, Manfred , Wood, Richard and Wiedmann, Thomas(2010) 'UNCERTAINTY ANALYSIS FOR MULTI-REGION INPUT-OUTPUT MODELS - A CASE STUDY OF THE UK'S CARBON FOOTPRINT', Economic Systems Research, 22: 1, 43 — 63) 
+logT_SD = max(0,log10((ID0+IDSD)./((ID0+ID0+IDSD)/2+1e-10)+1e-10));
+logY_SD = max(0,log10((FD0+FDSD)./((FD0+FD0+FDSD)/2+1e-10)+1e-10));
+logQ_SD = max(0,log10((Q0+QSD)./((Q0+Q0+QSD)/2+1e-10)+1e-10));
+
+% 3.1 MC loop
+if exist([processeddatadir 'FPtourismMC.mat'],'file')
+    load([processeddatadir 'FPtourismMC.mat']);
+    ct = size(FP,1);
+else
+    ct = 0;
+end
+
+disp('Starting the Monte-Carlo runs...');
+for mc = 1:(NMC-ct)
+    % 3.1.1 Generate random normally distributed arrays
+    rT = randn(size(ID0));
+    rY = randn(size(FD0));
+    rQ = randn(size(Q0));
+    % 3.1.2 Perturb T and Q
+    Tp = 10.^ (log10(ID0+1e-10) + logT_SD .* rT);
+    Yp = 10.^ (log10(FD0+1e-10) + logY_SD .* rY);
+    Qp = 10.^ (log10(Q0+1e-10) + logQ_SD .* rQ);
+    if sum(Qp) > (sum(Q0)*1.05); Qp = Q0; end
+    % 3.1.3 Re-calculate total output
+    xp = sum(Tp,2) + sum(Yp,2);
+    if max(abs(x0-xp)./max(x0)) > 10e-2
+        disp(['MC run ' num2str(ct+1) ' discarded; total output deviations up to ' num2str(max(abs(x0-xp)./max(x0))*100) '%.']);
+    else
+        disp(['MC run ' num2str(ct+1) '; maximum x deviation ' num2str(max(abs(x0-xp)./max(x0))*100) '%.']);
+        % Perturbed tourism demand
+        [ytourp,qp] = processRawTSAdata4MC(Yp,xp,Qp,STdom0,STinb0,NS,NCOUN,NYear,TSAdom,TSAinb,TSAflow,concGLORIA2TSAreg,concGLORIA2TSAsec,concDomGL,concTrans,needAvi,Agg16,Agg1,nodata,aviGL0);
+
+        % Calculate carbon footprint
+        xp(xp<1e-3) = 0;
+        A = Tp * diag(1./(xp+1e-9));
+        L = inv(eye(size(A)) - A);    
+        FPfull = diag(qp) * L * ytourp;
+
+        % Aggregate to 16 sectors
+        FP16 = Agg16 * FPfull;
+        FP16(10:16:end,:) = ytourp(63:120:end,:) ./ repmat(petrolPrice(:,3)+1e-9,[1 NCOUN]) .* 2.3; % add petrol to sector 10!!
+        
+        % Aggregate to country level
+        FP1 = sum(sum(reshape(FP16,[16,NCOUN,NCOUN]),3),2) ./ 1e12;
+
+        % 3.2 Calculate MC deviations
+        if abs(sum(sum(FP10)) - sum(FP1)) ./ (abs(sum(sum(FP10))) + 1e-10) < 10
+            ct=ct+1; FP(ct,:) = FP1;
+        else
+            disp(['MC run ' num2str(ct) ' discarded; F deviation ' num2str(abs(sum(FP10) - sum(FP1)) ./ (abs(sum(FP10)) + 1e-10))  '.']);        
+        end
+    end
+
+    if floor(ct/10)==ct/10
+        disp(['Monte-Carlo run ' num2str(ct) ' out of ' num2str(NMC) ' loops; ' num2str(round(100*toc(tStart)/60)/100,5) ' min.']);
+    end 
+    if ct > 2
+        save([processeddatadir 'FPtourismMC.mat'],'FP');
+    end  
+end % end of MC loop
+save([processeddatadir 'FPtourismMC.mat'],'FP');
+
+%% 4 Determine SDs
+% Graph
+load([processeddatadir 'FPtourismMC.mat']); FP(1001:end,:) = [];
+FPs = [FP,sum(FP,2)]; % FP11=[FP10,FP']; FP11s = [FP11;sum(FP11,1)]; 
+
+f = figure('Name','Frequency distributions of Q~','Position',[1 1 scrsz(3)/1.5 scrsz(4)/2]);
+edges = [5.0:1/30:5.6];
+histogram(FPs(:,17),edges); xlim([min(edges),max(edges)]); ylim([0 max(histcounts(FPs(:,17),edges)).*1.05]); set(gca,'XTick',(min(edges):0.1:max(edges)))
+xlabel('Carbon footprint of global tourism (Gt CO_2-e), 2019','FontSize',18);
+ylabel({'Frequency distribution in [min($$\tilde{Q}$$):0.033:max($$\tilde{Q})$$]'},'Interpreter','latex');
+xL=xlim; yL=ylim; text(0.997*xL(2),0.97*yL(2),['iterations: ' num2str(size(FP,1))],'HorizontalAlignment','right','VerticalAlignment','top','FontSize',14)
+ax = gca; ax.FontSize = 14; 
+saveas(f,[resultdir 'FPdistribution'],'png');
+
+% Sectoral SDs
+FPsecLabels = {'Agriculture';'Mining';'Food';'Goods';'Utilities';'Construction';'Trade';'Services';'Accommodation';'Private vehicles';'Fuel';'Road transport';'Rail transport';'Air transport';'Water transport';'Transport services'};
+FPstd = [ 1000*[FP10;sum(FP10)] , 2000*std(FPs,1)' , 100*(2*std(FPs,1)./mean(FPs,1))' ]; FPstd(isnan(FPstd)) = 0;
+FPstdTab = arrayfun(@(x) cellstr(num2str(x,3)),FPstd,'UniformOutput',false);
+FPstdTab = [ [FPsecLabels; 'Total'] FPstdTab] ;
+FPstdTab = [ {'','Carbon footprint (Mt CO2-e)','2\sigma (Mt CO2-e)','(%)'} ; FPstdTab]; 
+save([processeddatadir 'FPstdTab.mat'],'FPstdTab');
+
+disp(['1 sigma = ' num2str(0.0005*FPstd(17,2)) '; 2 sigma = ' num2str(0.001*FPstd(17,2)) '; 3 sigma = ' num2str(0.0015*FPstd(17,2))])
+idx = FPs(:,end)>=5.1 & FPs(:,end)<=5.5; disp(['5.1-5.5: ' num2str(sum(idx)/size(FPs,1)*100) ' confidence']); 
+idx = FPs(:,end)>=5.05 & FPs(:,end)<=5.5; disp(['5.05-5.5: ' num2str(sum(idx)/size(FPs,1)*100) ' confidence']); 
