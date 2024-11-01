@@ -1,0 +1,606 @@
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 
+%% This code post- processes the Tourism Satellites and issues results for 
+%% the Global Tourism Carbon Footprint paper
+%%
+%% 1 November 2024
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% 1 Initialisation
+clear; clc; close all;
+
+% Change with local directory !!
+workdir = '/Users/futufaturay/Desktop/2025_Tourism/';
+
+gloriadir = [workdir 'RawData/GLORIA/'];
+rawdatadir = [workdir 'RawData/']; 
+concdir = [workdir 'Concordances/'];
+processeddatadir = [workdir 'ProcessedData/'];
+resultdir = [workdir 'ResultFiles/']; 
+
+GLyears = [2009 2013 2019:2021]; NYear = length(GLyears);
+scrsz = get(groot,'ScreenSize');
+%CPI = [98.3864 106.8338 117.2442 118.6905 124.2664]./98.3864; % CPI, https://data.worldbank.org/indicator/FP.CPI.TOTL?locations=US
+
+PRICE = 1; % PRICE = 1 (price adjusted) --> q .* CPI, ytour ./ CPI
+
+%% 2 Load classifications, concordances, and data
+disp(['Loading and processing raw tourism data.']);
+
+% 2.1 Load classifications
+% 2.1.1 Load GLORIA country names and acronyms
+load([concdir 'countryNames.mat']); load([concdir 'countryAcros.mat']); NCOUN = size(countryNames,1);
+% 2.1.2 Load TSA country names and acronyms
+load([concdir 'UNAcr.mat']); load([concdir 'UNCountry.mat']);
+% 2.1.3 Load GLORIA sector names
+load([concdir 'sectorNames.mat']);
+% 2.1.4 Load 16 sector names
+FPsecLabels = {'Agriculture';'Mining';'Food';'Goods';'Utilities';'Construction';'Trade';'Services';'Accommodation';'Private vehicles';'Fuel';'Road transport';'Rail transport';'Air transport';'Water transport';'Transport services'};
+FPsecAbbrev = {'Ag';'Min';'Food';'Goods';'Utils';'Constr';'Trade';'Sv';'Acc';'PV';'Fuel';'Road';'Rail';'Air';'Water';'TranSv'};
+cmp         = [[0.0  0.1   0.0    0.9     1.0     0.0      0.8     0.7  1.0   1.0  0.7    0.5    0.4    0.3   0.0     0.7]', ... 
+               [0.5  0.8   1.0    0.9     1.0     0.0      0.4     0.7  0.5   0.2  0.7    0.5    0.4    0.3   0.0     0.9]', ...    
+               [0.0  0.1   0.0    0.9     0.0     0.0      0.1     0.7  0.5   0.2  1.0    1.0    1.0    1.0   1.0     1.0]'];
+
+% 2.2 Load concordances
+% 2.2.1 Load TSA to GLORIA concordances
+load([concdir 'concGLORIA2TSAreg.mat']); load([concdir 'concGLORIA2TSAsec.mat']);
+% 2.2.2 Load income class concordance
+load([concdir 'concIncGL.mat']);
+% 2.2.3 Load domestic concordance
+concDom1 = diag(ones(NCOUN,1));
+concDom = ones(16,1); conc = concDom; 
+for cc=1:NCOUN-1; conc = blkdiag(conc,concDom); end; concDom = conc; clear conc;
+concDomGL = ones(120,1); conc = concDomGL; 
+for cc=1:NCOUN-1; conc = blkdiag(conc,concDomGL); end; concDomGL = conc; clear conc;
+% 2.2.4 Load 16 sectors concordance
+concSec = repmat(diag(ones(16,1)),[NCOUN 1]);
+
+% 2.3 Load data
+% 2.3.1 Load tourism final demand array
+load([processeddatadir 'CPI.mat']); CPIfull = repmat(CPI,[NCOUN 1]) ./ 100; % https://data.bls.gov/PDQWeb/cu
+ytour = importdata([processeddatadir 'ytour.mat']) * 1e6; ytourNoCPI = ytour;
+if  PRICE 
+    for k=1:NYear; ytour(:,:,k) = ytour(:,:,k) ./ CPIfull(:,k); end 
+end
+ytourOri = ytour;
+
+% Remove Zimbabwe
+cc = find(ismember(countryNames,'Zimbabwe')); dd = find(ismember(countryNames,'Rest of Africa'));
+ytour(((cc-1)*120)+1:cc*120,:,:) = 0; ytour(:,cc,:) = 0;
+
+% Remove countries without tourism data
+load([processeddatadir 'nodata.mat']); 
+load([concdir 'Agg16.mat']); load([concdir 'Agg1.mat']);
+ytour(logical(Agg16' * Agg1' * nodata),:,:) = 0; ytour(:,nodata,:) = 0; % correct 120-sector array
+ytourOri(logical(Agg16' * Agg1' * nodata),:,:) = 0; ytourOri(:,nodata,:) = 0; % correct 120-sector array
+ytourNoCPI(logical(Agg16' * Agg1' * nodata),:,:) = 0; ytourNoCPI(:,nodata,:) = 0; % correct 120-sector array
+ytour2 = ytour;
+
+checkytour = squeeze(sum(sum(ytour,2),1)); % check total
+checkytourOri = squeeze(sum(sum(ytourOri,2),1)); % check total
+checkytourNoCPI = squeeze(sum(sum(ytourNoCPI,2),1)); % check total
+
+% 2.3.2 Load carbon intensity, petrol price
+load([processeddatadir 'qFull.mat']); % carbon intensity
+load([processeddatadir 'petrolPrice.mat']); petrolPrice(nodata,:) = 0; % petrol price
+if  PRICE
+    qFull = qFull .* CPIfull;
+    petrolPrice = petrolPrice ./ CPIfull(63,:);
+end
+
+% 2.3.3 Load supporting data 
+load([processeddatadir 'GLflow.mat']); % tourist flows
+load([processeddatadir 'QCO2e.mat']); % CO2e emissions
+load([processeddatadir 'allGHGe.mat']); % GHG emissions
+load([processeddatadir 'xout.mat']); % total output
+xoutCons = xout ./ CPIfull;
+load([processeddatadir 'hhDomFull.mat']); load([processeddatadir 'hhTotFull.mat']); % household consumption
+pop = importdata([processeddatadir 'GLpop.mat']); % population
+pcGDP = importdata([processeddatadir 'GLpcGDP.mat']); % GDP per capita
+GDP = pop .* pcGDP; GDP(isnan(GDP)) = 0;
+
+%% 3 Carry-out carbon footprint calculations
+% 3.1 Calculate direct and indirect carbon footprint
+disp(['Calculating carbon footprint.']);
+if exist([resultdir 'FPdirect.mat'],'file')
+    load([resultdir 'FPdirect.mat']); 
+    load([resultdir 'FPpetrol.mat']);
+    load([resultdir 'FPfullSecNopetrol.mat']); 
+else
+    for k=1:NYear
+        yy=GLyears(k);
+        disp(['Calculating carbon footprint ' num2str(yy) '.']);
+        q = qFull(:,k);
+        load([processeddatadir 'L_' num2str(yy) '.mat']);
+        FPdirect(:,:,k) = q .* (eye(size(q,1)) * squeeze(ytour(:,:,k)));
+        if  k==1 || k==2
+            FPpetrol(:,:,k) = squeeze(ytour(63:120:end,:,k)) ./ repmat(petrolPrice(:,k)+1e-9,[1 NCOUN]) .* 2.5;
+        else
+            FPpetrol(:,:,k) = squeeze(ytour(63:120:end,:,k)) ./ repmat(petrolPrice(:,k)+1e-9,[1 NCOUN]) .* 2.3;
+        end
+        FPfullSecNopetrol(:,:,k) = diag(q) * L * squeeze(ytour(:,:,k)); clear L q
+    end
+    FPpetrol(nodata,:,:) = 0; FPpetrol(:,nodata,:) = 0; % correct 1-sector array
+    save([resultdir 'FPdirect.mat'],'FPdirect');
+    save([resultdir 'FPpetrol.mat'],'FPpetrol');
+    save([resultdir 'FPfullSecNopetrol.mat'],'FPfullSecNopetrol');
+end
+
+% Reallocate Zimbabwe
+if exist([resultdir 'Zimbabwe/FPdirect.mat'],'file')
+    FPdirect2 = importdata([resultdir 'Zimbabwe/FPdirect.mat']);
+    FPpetrol2 = importdata([resultdir 'Zimbabwe/FPpetrol.mat']);
+    FPfullSecNopetrol2 = importdata([resultdir 'Zimbabwe/FPfullSecNopetrol.mat']);
+else
+    CFofTourism_GLORIA4Zimbabwe
+end
+cc = find(ismember(countryNames,'Zimbabwe')); dd = find(ismember(countryNames,'Rest of Africa'));
+ytour = ytourOri;
+
+FPdirect2(((dd-1)*120)+1:dd*120,cc,:) = FPdirect2(((dd-1)*120)+1:dd*120,dd,:);
+FPdirect(:,cc,:) = FPdirect2(:,dd,:); FPdirect(((cc-1)*120)+1:cc*120,:,:) = FPdirect2(((dd-1)*120)+1:dd*120,:,:); 
+
+FPfullSecNopetrol2(((dd-1)*120)+1:dd*120,cc,:) = FPfullSecNopetrol2(((dd-1)*120)+1:dd*120,dd,:);
+FPfullSecNopetrol(:,cc,:) = FPfullSecNopetrol2(:,dd,:); FPfullSecNopetrol(((cc-1)*120)+1:cc*120,:,:) = FPfullSecNopetrol2(((dd-1)*120)+1:dd*120,:,:); 
+
+FPpetrol2(dd,cc,:) = FPpetrol2(dd,dd,:); FPpetrol(:,cc,:) = FPpetrol2(:,dd,:); FPpetrol(cc,:,:) = FPpetrol2(dd,:,:); 
+
+% 3.2 Convert to 16 sectors
+for k=1:NYear
+    yy=GLyears(k);
+    % Carbon footprint
+    FP16(:,:,k) = Agg16 * squeeze(FPfullSecNopetrol(:,:,k));
+    FP16direct(:,:,k) = Agg16 * squeeze(FPdirect(:,:,k));
+    % Add Petrol to Sector 10
+    FP16(10:16:end,:,k) = squeeze(FPpetrol(:,:,k));
+    FP16direct(10:16:end,:,k) = squeeze(FPpetrol(:,:,k));
+    % Checksum
+    if abs(sum(sum(squeeze(FP16(:,:,k)))) - sum(sum(squeeze(FPfullSecNopetrol(:,:,k)))) - sum(sum(squeeze(FPpetrol(:,:,k))))) ...
+       ./((sum(sum(squeeze(FP16(:,:,k)))) + sum(sum(squeeze(FPfullSecNopetrol(:,:,k)))) + sum(sum(squeeze(FPpetrol(:,:,k)))))/2) > 1e-3
+        warning(['Checksum failed for year ' num2str(yy) ': sum(FP16) = '  '; sum(FPfull) = ' num2str(sum(sum(squeeze(FPfull(:,:,k)))) + sum(sum(squeeze(FPpetrol(:,:,k))))) '.']);
+    end
+    % For the Monte-Carlo run
+    FP16year(:,k) = sum(sum(reshape(FP16(:,:,k),[16,NCOUN,NCOUN]),3),2) ./ 1e12;
+
+    % Tourism expenditure
+    yt16(:,:,k) = Agg16 * squeeze(ytour(:,:,k));
+    % Checksum
+    if abs(sum(sum(squeeze(yt16(:,:,k)))) - sum(sum(squeeze(ytour(:,:,k))))) ...
+       ./((sum(sum(squeeze(yt16(:,:,k)))) + sum(sum(squeeze(ytour(:,:,k)))))/2) > 1e-3;
+        warning(['Checksum failed for year ' num2str(yy) ': sum(y16) = ' num2str(sum(sum(squeeze(yt16(:,:,k))))) '; sum(y120) = ' num2str(sum(sum(squeeze(ytour(:,:,k))))) '.']);
+    end
+end; clear yy cc;
+FP16(logical(Agg1' * nodata),:,:) = 0; FP16(:,nodata,:) = 0; % correct 16-sector array
+FP16direct(logical(Agg1' * nodata),:,:) = 0; FP16direct(:,nodata,:) = 0; % correct 16-sector array
+FP16indirect = FP16 - FP16direct;
+save([resultdir 'FP16year.mat'],'FP16year');
+
+checkFPfull = squeeze(sum(sum(FP16,2),1)); % check total
+checkFPdirect = squeeze(sum(sum(FP16direct,2),1)); % check total
+checkFPpetrol = squeeze(sum(sum(FPpetrol,2),1)); % check total
+
+% 3.3 Aggregate to country level
+for k=1:NYear
+    yy=GLyears(k);
+    % Carbon footprint
+    FP1(:,:,k) = Agg1 * squeeze(FP16(:,:,k));
+    FP1direct(:,:,k) = Agg1 * squeeze(FP16direct(:,:,k));
+    % Checksum
+    if abs(sum(sum(squeeze(FP1(:,:,k)))) - sum(sum(squeeze(FP16(:,:,k))))) ...
+       ./((sum(sum(squeeze(FP1(:,:,k)))) + sum(sum(squeeze(FP16(:,:,k)))))/2) > 1e-3
+        warning(['Checksum failed for year ' num2str(yy+STARTYEAR-1) ': sum(FP1) = ' num2str(sum(sum(squeeze(FP1(:,:,k))))) '; sum(FP16) = ' num2str(sum(sum(squeeze(FP16(:,:,k))))) '.']);
+    end
+
+    % Tourism expenditure
+    yt1(:,:,k) = Agg1 * squeeze(yt16(:,:,k));
+    % Checksum
+    if abs(sum(sum(squeeze(yt1(:,:,k)))) - sum(sum(squeeze(yt16(:,:,k))))) ...
+       ./((sum(sum(squeeze(yt1(:,:,k)))) + sum(sum(squeeze(yt16(:,:,k)))))/2) > 1e-3
+        warning(['Checksum failed for year ' num2str(yy) ': sum(y1) = ' num2str(sum(sum(squeeze(yt1(:,:,k))))) '; sum(y16) = ' num2str(sum(sum(squeeze(yt16(:,:,k))))) '.']);
+    end    
+end; clear yy cc;
+FP1indirect = FP1 - FP1direct;
+yTSA = squeeze(sum(yt1,2)); yMRIO = squeeze(sum(yt1,1));
+%}
+% 3.4 Summarise results
+% 3.4.1 Values by country
+for k=1:NYear
+    yy=GLyears(k);
+    flowControl = []; flowLabel = {};
+    
+    tt = sum(squeeze(GLflow(k,:,:)),2); uu = {'Tinb'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum(squeeze(GLflow(k,:,:)),1)'; uu = {'Tout'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = pop(:,k); uu = {'pop'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = pcGDP(:,k); uu = {'pcGDP'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = pop(:,k) .* pcGDP(:,k) ./ 1e6; uu = {'GDP'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum(squeeze(yt1(:,:,k)) .* eye(NCOUN),1)' ./ 1e6; uu = {'ydom'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum(squeeze(yt1(:,:,k)) .* (1-eye(NCOUN)),2) ./ 1e6; uu = {'yinb'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum(squeeze(yt1(:,:,k)) .* (1-eye(NCOUN)),1)' ./ 1e6; uu = {'yout'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt1 = sum(yt1(:,:,k),2) ./ 1e6; uu = {'yDBA'};
+    flowControl = cat(2,flowControl,tt1); flowLabel = cat(2,flowLabel,uu);    
+
+    tt3 = sum(yt1(:,:,k),1)' ./ 1e6; uu = {'yRBA'};
+    flowControl = cat(2,flowControl,tt3); flowLabel = cat(2,flowLabel,uu);
+    %
+    tt5 = Agg1 * Agg16 * xoutCons(:,k) ./ 1e3; uu = {'xoutCons'};
+    flowControl = cat(2,flowControl,tt5); flowLabel = cat(2,flowLabel,uu);        
+
+    tt6 = Agg1 * Agg16 * QCO2e(:,k) ./ 1e3; uu = {'CO2e'};
+    flowControl = cat(2,flowControl,tt6); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = Agg1 * Agg16 * (QCO2e(:,k) - sum(allGHGe(:,k,2:7),3)) ./ 1e3; uu = {'CO2'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = Agg1 * Agg16 * sum(allGHGe(:,k,2:7),3) ./ 1e3; uu = {'nonCO2'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((squeeze(FP1(:,:,k)) .* concDom1),2) ./ 1e6; uu = {'FPdom'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+    
+    tt = sum((squeeze(FP1(:,:,k)) .* (1-concDom1)),2) ./ 1e6; uu = {'FPinb'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((squeeze(FP1(:,:,k)) .* (1-concDom1)),1)' ./ 1e6; uu = {'FPout'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt2 = sum(squeeze(FP1(:,:,k)),2) ./ 1e6; uu = {'FPDBA'};
+    flowControl = cat(2,flowControl,tt2); flowLabel = cat(2,flowLabel,uu);    
+   
+    tt4 = sum(squeeze(FP1(:,:,k)),1)' ./ 1e6; uu = {'FPRBA'};
+    flowControl = cat(2,flowControl,tt4); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum(squeeze(FP1direct(:,:,k)),2) ./ 1e6; uu = {'FPdirect'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum(squeeze(FP1indirect(:,:,k)),2) ./ 1e6; uu = {'FPindirect'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu); 
+
+    tt = tt2 ./ tt1; uu = {'qDBA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = tt4 ./ tt3; uu = {'qRBA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = tt6 ./ tt5 * 1e3; uu = {'qGLORIA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);       
+    flowControl(isinf(flowControl)) = 0; flowControl(isnan(flowControl)) = 0;
+
+    dFprofile = ['Country' 'Acronym' flowLabel; countryNames countryAcros num2cell(flowControl)];
+    MfullTab = array2table(dFprofile);
+    filename = [resultdir 'Summary Results' '.xlsx'];
+    writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet',char(num2str(yy)));
+
+    % no data
+    dFprofile = ['Country' 'Acronym' flowLabel; countryNames(nodata) countryAcros(nodata) num2cell(flowControl(nodata,:))];
+    MfullTab = array2table(dFprofile);
+    filename = [resultdir 'Summary Results_nodata' '.xlsx'];
+    writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet',char(num2str(yy)));
+end
+
+% 3.4.2 Values by sector
+for k=1:NYear
+    yy=GLyears(k);
+    flowControl = []; flowLabel = {};
+      
+    tt = sum((concSec' * (squeeze(yt16(:,:,k)) .* concDom)),2) ./ 1e6; uu = {'ydom'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * (squeeze(yt16(:,:,k)) .* (1-concDom))),2) ./ 1e6; uu = {'yinb'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    uu = {'yout'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt1 = sum((concSec' * squeeze(yt16(:,:,k))),2) ./ 1e6; uu = {'yDBA'};
+    flowControl = cat(2,flowControl,tt1); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = tt1; uu = {'yRBA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);
+    
+    tt5 = concSec' * Agg16 * xoutCons(:,k) ./ 1e3; uu = {'xoutCons'};
+    flowControl = cat(2,flowControl,tt5); flowLabel = cat(2,flowLabel,uu);        
+
+    tt6 = concSec' * Agg16 * QCO2e(:,k) ./ 1e3; uu = {'CO2e'};
+    flowControl = cat(2,flowControl,tt6); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = concSec' * Agg16 * (QCO2e(:,k) - sum(allGHGe(:,k,2:7),3)) ./ 1e3; uu = {'CO2'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = concSec' * Agg16 * sum(allGHGe(:,k,2:7),3) ./ 1e3; uu = {'nonCO2'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * (squeeze(FP16(:,:,k)) .* concDom)),2) ./ 1e6; uu = {'FPdom'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * (squeeze(FP16(:,:,k)) .* (1-concDom))),2) ./ 1e6; uu = {'FPinb'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * (squeeze(FP16(:,:,k)) .* (1-concDom))),2) ./ 1e6; uu = {'FPout'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt2 = sum((concSec' * squeeze(FP16(:,:,k))),2) ./ 1e6; uu = {'FPDBA'};
+    flowControl = cat(2,flowControl,tt2); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * squeeze(FP16(:,:,k))),2) ./ 1e6; uu = {'FPRBA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * squeeze(FP16direct(:,:,k))),2) ./ 1e6; uu = {'FPdirect'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = sum((concSec' * squeeze(FP16indirect(:,:,k))),2) ./ 1e6; uu = {'FPindirect'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+    
+    tt = tt2 ./ tt1; uu = {'qDBA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = tt2 ./ tt1; uu = {'qRBA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);    
+
+    tt = tt6 ./ tt5 * 1e3; uu = {'qGLORIA'};
+    flowControl = cat(2,flowControl,tt); flowLabel = cat(2,flowLabel,uu);       
+    flowControl(isinf(flowControl)) = 0; flowControl(isnan(flowControl)) = 0;
+
+    dFprofile = ['Country' 'Acronym' flowLabel; FPsecLabels FPsecAbbrev num2cell(flowControl)];
+    MfullTab = array2table(dFprofile);
+    filename = [resultdir 'Summary Results' '.xlsx'];
+    writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet',char(['sec' num2str(yy)]));
+end
+
+% 3.4.3 Values by income group
+inclass = {'Low'; 'Lower-Middle'; 'Upper-Middle'; 'High'};
+labeltmp = {'Tourists';'Expenditure';'Carbon Footprint'};
+flowIncome = [];
+for k=1:NYear
+    yy=GLyears(k); 
+    flowInc = [];   
+
+    tt = concIncGL' * squeeze(GLflow(k,:,:)) * concIncGL; flowInc = cat(1,flowInc,tt);
+    tt = concIncGL' * (squeeze(yt1(:,:,k)) .* (1-concDom1)) * concIncGL ./ 1e6; flowInc = cat(1,flowInc,tt);
+    tt = concIncGL' * (squeeze(FP1(:,:,k)) .* (1-concDom1)) * concIncGL ./ 1e6; flowInc = cat(1,flowInc,tt);  
+    tt = (concIncGL' * pop(:,k))'; flowInc = cat(1,flowInc,tt);
+    flowIncome(k,:,:) = flowInc;
+    
+    dFprofile = [{''} {''} inclass'; [reshape(repmat(labeltmp,[1 4])',[12 1]);'Population'], [repmat(inclass,[3 1]);'Population'], num2cell(flowInc)];
+    MfullTab = array2table(dFprofile);
+    filename = [resultdir 'Summary Results' '.xlsx'];
+    writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet',char(['flow' num2str(yy)]));
+end
+
+%% 4. Carry-out decomposition analysis
+disp(['Calculating decomposition.']);
+% Formula
+% deltaI = (dq*L*ypc*pop) + (0.5*((dq*dL*ypc*pop)+(dq*L*dypc*pop))+(dq*L*ypc*dpop))) + ...
+%          (1/3*((dq*dL*dypc*pop)+(dq*dL*ypc*dpop))+(dq*L*dypc*dpop))) + (1/4*(dq*dL*dypc*dpop));
+% deltaL = (q*dL*ypc*pop) + (0.5*((dq*dL*ypc*pop)+(q*dL*dypc*pop))+(q*dL*ypc*dpop))) + ...
+%          (1/3*((dq*dL*dypc*pop)+(dq*dL*ypc*dpop))+(q*dL*dypc*dpop))) + (1/4*(dq*dL*dypc*dpop));
+% deltaY = (q*L*dypc*pop) + (0.5*((dq*L*dypc*pop)+(q*dL*dypc*pop))+(q*L*dypc*dpop))) + ...
+%          (1/3*((dq*dL*dypc*pop)+(dq*L*dypc*dpop))+(q*dL*dypc*dpop))) + (1/4*(dq*dL*dypc*dpop));
+% deltaP = (q*L*ypc*dpop) + (0.5*((dq*L*ypc*dpop)+(q*dL*ypc*dpop))+(q*L*dypc*dpop))) + ...
+%          (1/3*((dq*dL*ypc*dpop)+(dq*L*dypc*dpop))+(q*dL*dypc*dpop))) + (1/4*(dq*dL*dypc*dpop));
+
+% 4.1 Calculate domestic and international decomposition
+if exist([resultdir 'deltaI.mat'],'file')
+    load([resultdir 'deltaI.mat']); load([resultdir 'deltaL.mat']);
+    load([resultdir 'deltaY.mat']); load([resultdir 'deltaP.mat']);
+    load([resultdir 'deltapetrol.mat']);
+else
+    % Load multiplier, Leontief, expenditure, and population
+    ytour = ytour2;
+    q2009 = qFull(:,1);
+    q2019 = qFull(:,3);
+    L2009 = importdata([processeddatadir 'L_' num2str(2009) '.mat']); 
+    L2019 = importdata([processeddatadir 'L_' num2str(2019) '.mat']);
+    pop2009 = pop(:,1); ypc2009tmp = squeeze(ytour(:,:,1)) * diag(1./(pop2009+1e-10));
+    pop2019 = pop(:,3); ypc2019tmp = squeeze(ytour(:,:,3)) * diag(1./(pop2019+1e-10));
+    dq = q2019 - q2009; 
+    dL = L2019 - L2009; 
+    dpetroltmp = FPpetrol(:,:,3) - (FPpetrol(:,:,1));
+    dpop = pop2019 - pop2009; 
+    
+    for i=1:2
+        if  i==1
+            ypc2009 = ypc2009tmp .* concDomGL; ypc2019 = ypc2019tmp .* concDomGL;
+            deltapetrol(:,:,i) = dpetroltmp .* diag(ones(NCOUN,1));
+        else
+            ypc2009 = ypc2009tmp .* (1-concDomGL); ypc2019 = ypc2019tmp .* (1-concDomGL);
+            deltapetrol(:,:,i) = dpetroltmp .* (1-diag(ones(NCOUN,1)));
+        end
+        dypc = ypc2019 - ypc2009;
+        
+        disp(['Intensity effect.']);
+        delta1  = diag(dq)    * L2009 * ypc2009 * diag(pop2009); disp(['delta1.']);
+        delta2  = diag(dq)    * dL    * ypc2009 * diag(pop2009); disp(['delta2.']);
+        delta3  = diag(dq)    * L2009 * dypc    * diag(pop2009); disp(['delta3.']);
+        delta4  = diag(dq)    * L2009 * ypc2009 * diag(dpop)   ; disp(['delta4.']);
+        delta5  = diag(dq)    * dL    * dypc    * diag(pop2009); disp(['delta5.']);
+        delta6  = diag(dq)    * dL    * ypc2009 * diag(dpop)   ; disp(['delta6.']);
+        delta7  = diag(dq)    * L2009 * dypc    * diag(dpop)   ; disp(['delta7.']);
+        delta8  = diag(dq)    * dL    * dypc    * diag(dpop)   ; disp(['delta8.']);
+        deltaI(:,:,i) = delta1 + (1/2*(delta2+delta3+delta4)) + (1/3*(delta5+delta6+delta7)) + (1/4*delta8);
+        
+        disp(['Leontief effect.']);
+        delta9  = diag(q2009) * dL    * ypc2009 * diag(pop2009); disp(['delta9.']);
+       %delta2  = diag(dq)    * dL    * ypc2009 * diag(pop2009); disp(['delta2.']); 
+        delta10 = diag(q2009) * dL    * dypc    * diag(pop2009); disp(['delta10.']);
+        delta11 = diag(q2009) * dL    * ypc2009 * diag(dpop)   ; disp(['delta11.']);
+       %delta5  = diag(dq)    * dL    * dypc    * diag(pop2009); disp(['delta5.']); 
+       %delta6  = diag(dq)    * dL    * ypc2009 * diag(dpop)   ; disp(['delta6.']); 
+        delta12 = diag(q2009) * dL    * dypc    * diag(dpop)   ; disp(['delta12.']);
+       %delta8  = diag(dq)    * dL    * dypc    * diag(dpop)   ; disp(['delta8.']);
+        deltaL(:,:,i) = delta9 + (1/2*(delta2+delta10+delta11)) + (1/3*(delta5+delta6+delta12)) + (1/4*delta8);
+    
+        disp(['Expenditure effect.']);
+        delta13 = diag(q2009) * L2009 * dypc    * diag(pop2009); disp(['delta13.']);
+       %delta3  = diag(dq)    * L2009 * dypc    * diag(pop2009); disp(['delta3.']);
+       %delta10 = diag(q2009) * dL    * dypc    * diag(pop2009); disp(['delta10.']);
+        delta14 = diag(q2009) * L2009 * dypc    * diag(dpop)   ; disp(['delta14.']);
+       %delta5  = diag(dq)    * dL    * dypc    * diag(pop2009); disp(['delta5.']);
+       %delta7  = diag(dq)    * L2009 * dypc    * diag(dpop)   ; disp(['delta7.']);
+       %delta12 = diag(q2009) * dL    * dypc    * diag(dpop)   ; disp(['delta12.']);
+       %delta8  = diag(dq)    * dL    * dypc    * diag(dpop)   ; disp(['delta8.']);
+        deltaY(:,:,i) = delta13 + (1/2*(delta3+delta10+delta14)) + (1/3*(delta5+delta7+delta12)) + (1/4*delta8);
+    
+        disp(['Population effect.']);
+        delta15 = diag(q2009) * L2009 * ypc2009 * diag(dpop)   ; disp(['delta15.']);
+       %delta4  = diag(dq)    * L2009 * ypc2009 * diag(dpop)   ; disp(['delta4.']);
+       %delta11 = diag(q2009) * dL    * ypc2009 * diag(dpop)   ; disp(['delta11.']); 
+       %delta14 = diag(q2009) * L2009 * dypc    * diag(dpop)   ; disp(['delta14.']);
+       %delta6  = diag(dq)    * dL    * ypc2009 * diag(dpop)   ; disp(['delta6.']);
+       %delta7  = diag(dq)    * L2009 * dypc    * diag(dpop)   ; disp(['delta7.']);
+       %delta12 = diag(q2009) * dL    * dypc    * diag(dpop)   ; disp(['delta12.']);
+       %delta8  = diag(dq)    * dL    * dypc    * diag(dpop)   ; disp(['delta8.']);
+        deltaP(:,:,i) = delta15 + (1/2*(delta4+delta11+delta14)) + (1/3*(delta6+delta7+delta12)) + (1/4*delta8);
+    
+        clear delta1 delta2 delta3 delta4 delta5 delta6 delta7 delta8 delta9 delta10 delta11 delta12 delta13 delta14 delta15
+    end   
+    save([resultdir 'deltaI.mat'],'deltaI'); save([resultdir 'deltaL.mat'],'deltaL');
+    save([resultdir 'deltaY.mat'],'deltaY'); save([resultdir 'deltaP.mat'],'deltaP');
+    save([resultdir 'deltapetrol.mat'],'deltapetrol');
+end
+
+% Reallocate Zimbabwe
+if exist([resultdir 'Zimbabwe/deltaI.mat'],'file')
+    deltaI2 = importdata([resultdir 'Zimbabwe/deltaI.mat']); deltaL2 = importdata([resultdir 'Zimbabwe/deltaL.mat']);
+    deltaY2 = importdata([resultdir 'Zimbabwe/deltaY.mat']); deltaP2 = importdata([resultdir 'Zimbabwe/deltaP.mat']);
+    deltapetrol2 = importdata([resultdir 'Zimbabwe/deltapetrol.mat']);
+else
+    CFofTourism_GLORIA4Zimbabwe
+end
+
+cc = find(ismember(countryNames,'Zimbabwe')); dd = find(ismember(countryNames,'Rest of Africa'));
+ytour = ytourOri;
+deltaI2(((dd-1)*120)+1:dd*120,cc,:) = deltaI2(((dd-1)*120)+1:dd*120,dd,:);
+deltaI(:,cc,:) = deltaI2(:,dd,:); deltaI(((cc-1)*120)+1:cc*120,:,:) = deltaI2(((dd-1)*120)+1:dd*120,:,:); 
+
+deltaL2(((dd-1)*120)+1:dd*120,cc,:) = deltaL2(((dd-1)*120)+1:dd*120,dd,:);
+deltaL(:,cc,:) = deltaL2(:,dd,:); deltaL(((cc-1)*120)+1:cc*120,:,:) = deltaL2(((dd-1)*120)+1:dd*120,:,:); 
+
+deltaY2(((dd-1)*120)+1:dd*120,cc,:) = deltaY2(((dd-1)*120)+1:dd*120,dd,:);
+deltaY(:,cc,:) = deltaY2(:,dd,:); deltaY(((cc-1)*120)+1:cc*120,:,:) = deltaY2(((dd-1)*120)+1:dd*120,:,:); 
+
+deltaP2(((dd-1)*120)+1:dd*120,cc,:) = deltaP2(((dd-1)*120)+1:dd*120,dd,:);
+deltaP(:,cc,:) = deltaP2(:,dd,:); deltaP(((cc-1)*120)+1:cc*120,:,:) = deltaP2(((dd-1)*120)+1:dd*120,:,:); 
+
+deltapetrol2(dd,cc,:) = deltapetrol2(dd,dd,:); 
+deltapetrol(:,cc,:) = deltapetrol2(:,dd,:); deltapetrol(cc,:,:) = deltapetrol2(dd,:,:); 
+
+% 4.2 Summarise results
+deltasummary = zeros(5,2);
+for i=1:2
+    deltasummary(:,i) = [sum(sum(deltaI(:,:,i))); sum(sum(deltaL(:,:,i))); sum(sum(deltaY(:,:,i)));...
+                         sum(sum(deltaP(:,:,i))); sum(sum(deltapetrol(:,:,i)))]./1e9;
+end
+
+MaintextDelta = {}; ct = 1; MaintextDelta(ct,2:4) = {'Domestic' 'Inbound' 'Total'}; ct=ct+1;    
+deltasummary(end+1,:) = sum(deltasummary,1);
+deltasummary(:,3) = sum(deltasummary(:,1:2),2);
+deltaFP(1,:) = [sum(sum(FP16(:,:,1) .* concDom)),sum(sum(FP16(:,:,1) .* (1-concDom))),sum(sum(FP16(:,:,1)))]./1e9;
+deltaFP(3,:) = deltasummary(end,:);
+deltaFP(2,:) = deltaFP(1,:) + deltaFP(3,:);
+deltaFP(4,:) = deltasummary(end,:) ./ deltaFP(1,:) * 100;
+deltagrowth = (deltasummary ./ repmat(deltaFP(1,:),[size(deltasummary(1)),1])) * 100;
+
+MaintextDelta{ct,1} = 'Carbon footprint (Mt)'; ct=ct+1;
+MaintextDelta{ct,1} = '2009'; for i=2:4; MaintextDelta{ct,i} = num2str(deltaFP(1,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = '2019'; for i=2:4; MaintextDelta{ct,i} = num2str(deltaFP(2,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Difference'; for i=2:4; MaintextDelta{ct,i} = num2str(deltaFP(3,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Growth rate'; for i=2:4; MaintextDelta{ct,i} = num2str(deltaFP(4,i-1)); end; ct=ct+1;
+
+MaintextDelta{ct,1} = 'Decomposition (Mt)'; ct=ct+1;
+MaintextDelta{ct,1} = 'Technology'; for i=2:4; MaintextDelta{ct,i} = num2str(deltasummary(1,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Supply chain'; for i=2:4; MaintextDelta{ct,i} = num2str(deltasummary(2,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Expenditure'; for i=2:4; MaintextDelta{ct,i} = num2str(deltasummary(3,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Population'; for i=2:4; MaintextDelta{ct,i} = num2str(deltasummary(4,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Private vehicles'; for i=2:4; MaintextDelta{ct,i} = num2str(deltasummary(5,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Total'; for i=2:4; MaintextDelta{ct,i} = num2str(deltasummary(6,i-1)); end; ct=ct+1;
+
+MaintextDelta{ct,1} = 'Growth rate from 2009 (%)'; ct=ct+1;
+MaintextDelta{ct,1} = 'Technology'; for i=2:4; MaintextDelta{ct,i} = num2str(deltagrowth(1,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Supply chain'; for i=2:4; MaintextDelta{ct,i} = num2str(deltagrowth(2,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Expenditure'; for i=2:4; MaintextDelta{ct,i} = num2str(deltagrowth(3,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Population'; for i=2:4; MaintextDelta{ct,i} = num2str(deltagrowth(4,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Private vehicles'; for i=2:4; MaintextDelta{ct,i} = num2str(deltagrowth(5,i-1)); end; ct=ct+1;
+MaintextDelta{ct,1} = 'Total'; for i=2:4; MaintextDelta{ct,i} = num2str(deltagrowth(6,i-1)); end; ct=ct+1;
+
+% 4.2 Convert to 16 sectors
+for i=1:2
+    deltaI16(:,:,i) = Agg16 * deltaI(:,:,i);
+    deltaL16(:,:,i) = Agg16 * deltaL(:,:,i);
+    deltaY16(:,:,i) = Agg16 * deltaY(:,:,i);
+    deltaP16(:,:,i) = Agg16 * deltaP(:,:,i);
+end
+
+tmp = zeros(NCOUN*16,NCOUN,2);
+tmp(:,:,1) = sum(deltaI16,3) .* concDom; tmp(:,:,2) = sum(deltaI16,3) .* (1-concDom);    
+deltaI16merge = squeeze(sum(sum(reshape(tmp,[16,NCOUN,NCOUN,2]),3),2));
+
+tmp = zeros(NCOUN*16,NCOUN,2); 
+tmp(:,:,1) = sum(deltaL16,3) .* concDom; tmp(:,:,2) = sum(deltaL16,3) .* (1-concDom);        
+deltaL16merge = squeeze(sum(sum(reshape(tmp,[16,NCOUN,NCOUN,2]),3),2));
+
+tmp = zeros(NCOUN*16,NCOUN,2); 
+tmp(:,:,1) = sum(deltaY16,3) .* concDom; tmp(:,:,2) = sum(deltaY16,3) .* (1-concDom);    
+deltaY16merge = squeeze(sum(sum(reshape(tmp,[16,NCOUN,NCOUN,2]),3),2));
+
+tmp = zeros(NCOUN*16,NCOUN,2); 
+tmp(:,:,1) = sum(deltaP16,3) .* concDom; tmp(:,:,2) = sum(deltaP16,3) .* (1-concDom);    
+deltaP16merge = squeeze(sum(sum(reshape(tmp,[16,NCOUN,NCOUN,2]),3),2));
+
+deltaDom16 = [deltaI16merge(:,1), deltaL16merge(:,1), deltaY16merge(:,1), deltaP16merge(:,1)] ./ 1e9;
+deltaInb16 = [deltaI16merge(:,2), deltaL16merge(:,2), deltaY16merge(:,2), deltaP16merge(:,2)] ./ 1e9;
+deltaDom16(8,:) = deltaDom16(8,:) + deltaDom16(6,:); deltaDom16(6,:) = 0; % merge construction to services
+deltaInb16(8,:) = deltaInb16(8,:) + deltaInb16(6,:); deltaInb16(6,:) = 0;
+deltaDom16(10,3) = sum(sum(deltapetrol(:,:,1))) ./ 1e9; % add PV carbon emissions
+deltaInb16(10,3) = sum(sum(deltapetrol(:,:,2))) ./ 1e9;
+
+% 4.3 Aggregate to country level
+deltaDom(:,:,1) = Agg1 * deltaI16(:,:,1) ./ 1e9; 
+deltaDom(:,:,2) = Agg1 * deltaL16(:,:,1) ./ 1e9;
+deltaDom(:,:,3) = Agg1 * deltaY16(:,:,1) ./ 1e9; 
+deltaDom(:,:,4) = Agg1 * deltaP16(:,:,1) ./ 1e9; 
+deltaDom(:,:,5) = deltapetrol(:,:,1) ./ 1e9;
+
+deltaInb(:,:,1) = Agg1 * deltaI16(:,:,2) ./ 1e9; 
+deltaInb(:,:,2) = Agg1 * deltaL16(:,:,2) ./ 1e9;
+deltaInb(:,:,3) = Agg1 * deltaY16(:,:,2) ./ 1e9; 
+deltaInb(:,:,4) = Agg1 * deltaP16(:,:,2) ./ 1e9; 
+deltaInb(:,:,5) = deltapetrol(:,:,2) ./ 1e9;
+
+% 4.5 Save    
+deltaLegend = {'Technology';'Supply chain';'Expenditure';'Population';'Private vehicles'};
+deltaType = {'domesticDelta';'internationalDelta';'totalDelta'};
+for ii=1:3
+    tmpT = [];
+    if ii==1; domesticDelta = squeeze(sum(deltaDom,1));        tmpT = domesticDelta; end
+    if ii==2; internationalDelta = squeeze(sum(deltaInb,1));   tmpT = internationalDelta; end
+    if ii==3; totalDelta = internationalDelta + domesticDelta; tmpT = totalDelta; end
+    
+    dFprofile = ['kt' 'Acronym' deltaLegend'; countryNames countryAcros num2cell(tmpT * 1e3)];
+    MfullTab = array2table(dFprofile);
+    filename = [resultdir 'Summary Decomposition' '.xlsx'];
+    writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet',char(deltaType(ii)));
+end
+
+MfullTab = array2table(MaintextDelta);
+filename = [resultdir 'Summary Decomposition' '.xlsx'];
+writetable(MfullTab,filename,'WriteVariableNames',false,'Sheet',char('MaintextDelta'));
+
+save([resultdir 'MaintextDelta.mat'],'MaintextDelta');
+
+% End
